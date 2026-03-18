@@ -1,8 +1,8 @@
-﻿import { useState } from 'react';
-import { DollarSign, Plus, Trash2, Pencil, Info, X } from 'lucide-react';
-import { useIncomeStreams } from '../hooks/useFirestore';
+﻿import { useState, useMemo } from 'react';
+import { DollarSign, Plus, Trash2, Pencil, Info, X, Lock, Unlock, Check } from 'lucide-react';
+import { useIncomeStreams, useMonthlyIncomeLog } from '../hooks/useFirestore';
 import { useAppMode } from '../contexts/AppModeContext';
-import { FREQUENCIES, NEEDS_MONTH_PICKER, MONTH_NAMES, defaultMonthsForFrequency, toMonthly, toAnnual, formatCurrency, formatCurrencyShort } from '../lib/financial';
+import { FREQUENCIES, NEEDS_MONTH_PICKER, MONTH_NAMES, MONTH_NAMES_FULL, defaultMonthsForFrequency, getAmountForMonth, toMonthly, toAnnual, formatCurrency, formatCurrencyShort } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 
@@ -153,13 +153,107 @@ function ConfirmDelete({ name, onClose, onConfirm }) {
   );
 }
 
+// ─── Lock-In Modal ───
+
+function LockInModal({ streams, currentMonth, lockedData, onClose, onLock }) {
+  const [entries, setEntries] = useState(() => {
+    if (lockedData?.entries) {
+      return lockedData.entries;
+    }
+    return streams.map((s) => ({
+      id: s.id,
+      name: s.name,
+      estimated: getAmountForMonth(s.amount, s.frequency, s.applicableMonths, currentMonth),
+      actual: getAmountForMonth(s.amount, s.frequency, s.applicableMonths, currentMonth),
+    }));
+  });
+
+  const total = entries.reduce((sum, e) => sum + (parseFloat(e.actual) || 0), 0);
+
+  function updateActual(i, val) {
+    const updated = [...entries];
+    updated[i] = { ...updated[i], actual: parseFloat(val) || 0 };
+    setEntries(updated);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-lg p-6 relative max-h-[90vh] overflow-y-auto">
+        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+          <X className="w-5 h-5" />
+        </button>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
+          Lock In {MONTH_NAMES_FULL[currentMonth - 1]} Income
+        </h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+          Adjust amounts to match your actual paychecks this month, then lock it in.
+        </p>
+
+        <div className="space-y-3">
+          {entries.map((entry, i) => (
+            <div key={entry.id} className="flex items-center gap-3">
+              <div className="flex-1">
+                <p className="text-sm font-medium text-gray-900 dark:text-white">{entry.name}</p>
+                <p className="text-xs text-gray-400">Estimated: {formatCurrency(entry.estimated)}</p>
+              </div>
+              <div className="w-36">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={entry.actual}
+                  onChange={(e) => updateActual(i, e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm text-right focus:ring-2 focus:ring-emerald-500 outline-none"
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <div className="flex justify-between items-center mb-4">
+            <span className="text-sm font-semibold text-gray-900 dark:text-white">Total</span>
+            <span className="text-lg font-bold text-emerald-600">{formatCurrency(total)}</span>
+          </div>
+          <div className="flex gap-3">
+            <button onClick={onClose}
+              className="flex-1 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition">
+              Cancel
+            </button>
+            <button onClick={() => onLock(entries, total)}
+              className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition flex items-center justify-center gap-2">
+              <Lock className="w-4 h-4" /> Lock In
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Income() {
   const { streams, loading, addStream, updateStream, removeStream } = useIncomeStreams();
+  const { logs, lockMonth, unlockMonth } = useMonthlyIncomeLog();
   const { isSimpleMode } = useAppMode();
   usePrivacy();
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
+  const [showLockModal, setShowLockModal] = useState(false);
+
+  const now = new Date();
+  const currentMonth = now.getMonth() + 1; // 1-indexed
+  const currentYear = now.getFullYear();
+  const yearMonth = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
+  const lockedData = logs[yearMonth];
+  const isLocked = !!lockedData;
+
+  // This Month calculation — uses getAmountForMonth for each stream
+  const thisMonthEstimated = useMemo(() =>
+    streams.reduce((sum, s) => sum + getAmountForMonth(s.amount, s.frequency, s.applicableMonths, currentMonth), 0),
+    [streams, currentMonth]
+  );
+  const thisMonthActual = isLocked ? lockedData.total : thisMonthEstimated;
 
   const totalMonthly = streams.reduce((sum, s) => sum + toMonthly(s.amount, s.frequency), 0);
   const totalAnnual = streams.reduce((sum, s) => sum + toAnnual(s.amount, s.frequency), 0);
@@ -213,6 +307,35 @@ export default function Income() {
         </button>
       </div>
 
+      {/* This Month Card */}
+      <div className={`rounded-xl p-5 text-white ${isLocked ? 'bg-gradient-to-r from-blue-600 to-indigo-700' : 'bg-gradient-to-r from-emerald-500 to-teal-600'}`}>
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              {isLocked ? <Lock className="w-4 h-4" /> : <DollarSign className="w-4 h-4" />}
+              <h2 className="text-sm font-medium text-white/80">{MONTH_NAMES_FULL[currentMonth - 1]} {currentYear} Income</h2>
+            </div>
+            <p className="text-3xl font-bold">{formatCurrency(thisMonthActual)}</p>
+            <p className="text-sm text-white/70 mt-1">
+              {isLocked ? 'Locked in — actual amounts recorded' : 'Estimated from your income streams'}
+            </p>
+          </div>
+          <div className="flex flex-col gap-2">
+            {isLocked ? (
+              <button onClick={() => unlockMonth(yearMonth)}
+                className="flex items-center gap-2 px-3 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium transition">
+                <Unlock className="w-4 h-4" /> Unlock
+              </button>
+            ) : (
+              <button onClick={() => setShowLockModal(true)}
+                className="flex items-center gap-2 px-3 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium transition">
+                <Lock className="w-4 h-4" /> Lock In
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* How to use */}
       <details className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4">
         <summary className="cursor-pointer text-sm font-medium text-blue-800 dark:text-blue-300 flex items-center gap-2">
@@ -239,7 +362,7 @@ export default function Income() {
       {/* Summary Cards */}
       <div className={`grid grid-cols-1 ${isSimpleMode ? 'sm:grid-cols-2' : 'sm:grid-cols-3'} gap-4`}>
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-          <p className="text-sm text-gray-500 dark:text-gray-400">{isSimpleMode ? 'Total Take-Home (Monthly)' : 'Total Gross (Monthly)'}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{isSimpleMode ? 'Avg Take-Home (Monthly)' : 'Avg Gross (Monthly)'}</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{formatCurrency(totalMonthly)}</p>
           <p className="text-xs text-gray-400 mt-1">{formatCurrency(totalAnnual)} / year</p>
         </div>
@@ -257,7 +380,7 @@ export default function Income() {
         )}
         {isSimpleMode && (
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-            <p className="text-sm text-gray-500 dark:text-gray-400">Total Take-Home (Annual)</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Avg Take-Home (Annual)</p>
             <p className="text-2xl font-bold text-emerald-600 mt-1">{formatCurrency(totalAnnual)}</p>
           </div>
         )}
@@ -281,7 +404,7 @@ export default function Income() {
                     {!isSimpleMode && <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Type</th>}
                     <th className="text-right px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Amount</th>
                     <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Frequency</th>
-                    <th className="text-right px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Monthly</th>
+                    <th className="text-right px-4 py-3 font-medium text-gray-500 dark:text-gray-400">This Month</th>
                     {!isSimpleMode && <th className="text-center px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Taxable</th>}
                     <th className="text-right px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Actions</th>
                   </tr>
@@ -299,7 +422,7 @@ export default function Income() {
                       )}
                       <td className="px-4 py-3 text-right text-gray-900 dark:text-white">{formatCurrency(s.amount)}</td>
                       <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{freqLabel(s.frequency)}</td>
-                      <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-white">{formatCurrency(toMonthly(s.amount, s.frequency))}</td>
+                      <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-white">{formatCurrency(getAmountForMonth(s.amount, s.frequency, s.applicableMonths, currentMonth))}</td>
                       {!isSimpleMode && (
                         <td className="px-4 py-3 text-center">
                           {s.isTaxable ? (
@@ -371,6 +494,15 @@ export default function Income() {
       )}
       {deleting && (
         <ConfirmDelete name={deleting.name} onClose={() => setDeleting(null)} onConfirm={handleDelete} />
+      )}
+      {showLockModal && (
+        <LockInModal
+          streams={streams}
+          currentMonth={currentMonth}
+          lockedData={lockedData}
+          onClose={() => setShowLockModal(false)}
+          onLock={(entries, total) => { lockMonth(yearMonth, entries, total); setShowLockModal(false); }}
+        />
       )}
     </div>
   );

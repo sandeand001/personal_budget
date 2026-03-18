@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
-import { Wallet, Plus, Trash2, Pencil, X, ChevronDown, ChevronRight, ShoppingCart, Info, Calendar, BarChart3 } from 'lucide-react';
-import { useBudgetProfiles, useBudgetTransactions, useIncomeStreams, useExpenses } from '../hooks/useFirestore';
+import { Wallet, Plus, Trash2, Pencil, X, ChevronDown, ChevronRight, ShoppingCart, Info, Calendar, BarChart3, Lock } from 'lucide-react';
+import { useBudgetProfiles, useBudgetTransactions, useIncomeStreams, useExpenses, useMonthlyIncomeLog } from '../hooks/useFirestore';
 import { FREQUENCIES, MONTH_NAMES, MONTH_NAMES_FULL, getAmountForMonth, toMonthly, toAnnual, formatCurrency, formatCurrencyShort } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
 import { useAppMode } from '../contexts/AppModeContext';
@@ -389,22 +389,37 @@ function ProfileCard({ profile, onEdit, onDelete }) {
 function AnnualOverview() {
   const { streams } = useIncomeStreams();
   const { expenses } = useExpenses();
+  const { logs } = useMonthlyIncomeLog();
   const { isSimpleMode } = useAppMode();
+  const currentYear = new Date().getFullYear();
 
   const monthlyData = useMemo(() => {
     return Array.from({ length: 12 }, (_, i) => {
       const month = i + 1;
-      const income = streams.reduce(
-        (sum, s) => sum + getAmountForMonth(s.amount, s.frequency, s.applicableMonths, month),
-        0
-      );
+      const yearMonth = `${currentYear}-${String(month).padStart(2, '0')}`;
+      const locked = logs[yearMonth];
+
+      const income = locked
+        ? locked.total
+        : streams.reduce(
+            (sum, s) => sum + getAmountForMonth(s.amount, s.frequency, s.applicableMonths, month),
+            0
+          );
       const exp = expenses.reduce(
         (sum, e) => sum + getAmountForMonth(e.amount, e.frequency, e.applicableMonths, month),
         0
       );
-      return { month, name: MONTH_NAMES[i], fullName: MONTH_NAMES_FULL[i], income, expenses: exp, net: income - exp };
+      return {
+        month,
+        name: MONTH_NAMES[i],
+        fullName: MONTH_NAMES_FULL[i],
+        income,
+        expenses: exp,
+        net: income - exp,
+        isLocked: !!locked,
+      };
     });
-  }, [streams, expenses]);
+  }, [streams, expenses, logs, currentYear]);
 
   const annualIncome = monthlyData.reduce((s, m) => s + m.income, 0);
   const annualExpenses = monthlyData.reduce((s, m) => s + m.expenses, 0);
@@ -469,7 +484,12 @@ function AnnualOverview() {
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
               {monthlyData.map((m) => (
                 <tr key={m.month} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{m.fullName}</td>
+                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">
+                    <span className="flex items-center gap-1.5">
+                      {m.fullName}
+                      {m.isLocked && <Lock className="w-3 h-3 text-blue-500" title="Income locked in" />}
+                    </span>
+                  </td>
                   <td className="px-4 py-3 text-right text-gray-900 dark:text-white">{formatCurrency(m.income)}</td>
                   <td className="px-4 py-3 text-right text-red-500">{formatCurrency(m.expenses)}</td>
                   <td className={cn('px-4 py-3 text-right font-medium', m.net >= 0 ? 'text-emerald-600' : 'text-red-500')}>

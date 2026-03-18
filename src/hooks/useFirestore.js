@@ -362,3 +362,39 @@ export function useDebts() {
 
   return { debts, loading, addDebt, updateDebt, removeDebt };
 }
+
+// ─── Monthly Income Log ───
+// Stores locked-in actual income per month (keyed by "YYYY-MM")
+
+export function useMonthlyIncomeLog() {
+  const { householdId } = useHousehold();
+  const [logs, setLogs] = useState({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!householdId) return;
+    const unsub = onSnapshot(
+      collection(db, 'households', householdId, 'monthlyIncomeLogs'),
+      (snap) => {
+        const data = {};
+        snap.docs.forEach((d) => { data[d.id] = d.data(); });
+        setLogs(data);
+        setLoading(false);
+      }
+    );
+    return unsub;
+  }, [householdId]);
+
+  async function lockMonth(yearMonth, entries, total) {
+    return setDoc(
+      doc(db, 'households', householdId, 'monthlyIncomeLogs', yearMonth),
+      { entries, total, lockedAt: serverTimestamp() }
+    );
+  }
+
+  async function unlockMonth(yearMonth) {
+    return deleteDoc(doc(db, 'households', householdId, 'monthlyIncomeLogs', yearMonth));
+  }
+
+  return { logs, loading, lockMonth, unlockMonth };
+}
