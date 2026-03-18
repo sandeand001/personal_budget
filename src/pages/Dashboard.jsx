@@ -14,8 +14,8 @@ import {
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useAppMode } from '../contexts/AppModeContext';
-import { useIncomeStreams, useTaxProfile, useRetirement, useExpenses, useBudgetProfiles, useVacations, useDebts } from '../hooks/useFirestore';
-import { toAnnual, toMonthly, formatCurrency, getPeriodsPerYear } from '../lib/financial';
+import { useIncomeStreams, useTaxProfile, useRetirement, useExpenses, useFixedExpenses, useBudgetProfiles, useVacations, useDebts } from '../hooks/useFirestore';
+import { FREQUENCIES, toAnnual, toMonthly, formatCurrency, getPeriodsPerYear } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
 import { calculateAllDeductions } from '../lib/taxEngine';
 import { cn } from '../lib/utils';
@@ -52,6 +52,7 @@ export default function Dashboard() {
   const { profile: taxProfile } = useTaxProfile();
   const { retirement } = useRetirement();
   const { expenses: variableExpenses } = useExpenses();
+  const { expenses: fixedExpenses } = useFixedExpenses();
   const { profiles: budgetProfiles } = useBudgetProfiles();
   const { vacations } = useVacations();
   const { debts } = useDebts();
@@ -81,7 +82,15 @@ export default function Dashboard() {
     [variableExpenses]
   );
 
-  const netAnnual = deductions.netAnnual - variableAnnual;
+  const fixedAnnual = useMemo(
+    () => fixedExpenses.reduce((s, e) => s + toAnnual(e.amount, e.frequency), 0),
+    [fixedExpenses]
+  );
+
+  const totalExpensesAnnual = variableAnnual + fixedAnnual;
+  const allExpenses = [...fixedExpenses, ...variableExpenses];
+
+  const netAnnual = deductions.netAnnual - totalExpensesAnnual;
 
   // Refund / owed
   const refundOwed = deductions.refundOrOwed || 0;
@@ -211,8 +220,8 @@ export default function Dashboard() {
         )}
         <SummaryCard
           title="Expenses"
-          value={formatCurrency(variableAnnual / 12)}
-          subtitle={variableExpenses.length > 0 ? `${variableExpenses.length} expense${variableExpenses.length !== 1 ? 's' : ''} · ${formatCurrency(variableAnnual)}/yr` : 'No expenses yet'}
+          value={formatCurrency(totalExpensesAnnual / 12)}
+          subtitle={allExpenses.length > 0 ? `${fixedExpenses.length} fixed · ${variableExpenses.length} variable · ${formatCurrency(totalExpensesAnnual)}/yr` : 'No expenses yet'}
           icon={Receipt}
           color="bg-amber-500"
           to="/expenses"
@@ -267,12 +276,50 @@ export default function Dashboard() {
                     <span className="text-sm text-gray-900 dark:text-white">{s.name}</span>
                     {!isSimpleMode && !s.isTaxable && <span className="text-[10px] bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-1.5 py-0.5 rounded">non-taxable</span>}
                   </div>
-                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{formatCurrency(toMonthly(s.amount, s.frequency))}/mo</span>
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{formatCurrency(s.amount)}{freqLabel(s.frequency)}</span>
                 </div>
               ))}
               {streams.length > 5 && (
                 <Link to="/income" className="block text-center text-xs text-emerald-600 hover:underline py-1">
                   View all {streams.length} {isSimpleMode ? 'sources' : 'streams'} →
+                </Link>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Expenses Breakdown */}
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Expenses</h2>
+          {allExpenses.length === 0 ? (
+            <div className="text-center py-6 text-gray-400 dark:text-gray-500">
+              <Receipt className="w-8 h-8 mx-auto mb-2 opacity-50" />
+              <p className="text-sm">No expenses yet</p>
+              <Link to="/expenses" className="text-xs text-emerald-600 hover:underline mt-1 inline-block">Add your first expense →</Link>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {fixedExpenses.slice(0, 3).map((e) => (
+                <div key={e.id} className="flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">Fixed</span>
+                    <span className="text-sm text-gray-900 dark:text-white">{e.name}</span>
+                  </div>
+                  <span className="text-sm font-medium text-red-500">{formatCurrency(e.amount)}{freqLabel(e.frequency)}</span>
+                </div>
+              ))}
+              {variableExpenses.slice(0, 3).map((e) => (
+                <div key={e.id} className="flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">Var</span>
+                    <span className="text-sm text-gray-900 dark:text-white">{e.name}</span>
+                  </div>
+                  <span className="text-sm font-medium text-red-500">{formatCurrency(e.amount)}{freqLabel(e.frequency)}</span>
+                </div>
+              ))}
+              {allExpenses.length > 6 && (
+                <Link to="/expenses" className="block text-center text-xs text-emerald-600 hover:underline py-1">
+                  View all {allExpenses.length} expenses →
                 </Link>
               )}
             </div>
