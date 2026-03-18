@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState } from 'react';
 import { setPrivacyMode } from '../lib/financial';
 
 const PrivacyContext = createContext();
@@ -9,19 +9,18 @@ export function usePrivacy() {
 
 export function PrivacyProvider({ children }) {
   const [isPrivate, setIsPrivate] = useState(() => {
-    try { return localStorage.getItem('privacyMode') === 'true'; } catch { return false; }
+    const stored = (() => { try { return localStorage.getItem('privacyMode') === 'true'; } catch { return false; } })();
+    setPrivacyMode(stored);
+    return stored;
   });
 
-  useEffect(() => {
-    setPrivacyMode(isPrivate);
-    try { localStorage.setItem('privacyMode', isPrivate); } catch {}
-  }, [isPrivate]);
-
-  // Sync on mount
-  useEffect(() => { setPrivacyMode(isPrivate); }, []);
-
   function togglePrivacy() {
-    setIsPrivate((prev) => !prev);
+    setIsPrivate((prev) => {
+      const next = !prev;
+      setPrivacyMode(next);
+      try { localStorage.setItem('privacyMode', next); } catch {}
+      return next;
+    });
   }
 
   return (
