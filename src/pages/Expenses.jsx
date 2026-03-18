@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
 import { Receipt, Plus, Trash2, Pencil, Info, Calculator, X, Settings, ChevronDown, ChevronUp } from 'lucide-react';
 import { useIncomeStreams, useTaxProfile, useRetirement, useExpenses } from '../hooks/useFirestore';
-import { FREQUENCIES, NEEDS_MONTH_PICKER, MONTH_NAMES, defaultMonthsForFrequency, toAnnual, toMonthly, formatCurrency, getPeriodsPerYear } from '../lib/financial';
+import { FREQUENCIES, NEEDS_MONTH_PICKER, MONTH_NAMES, defaultMonthsForFrequency, toAnnual, toMonthly, formatCurrency, formatCurrencyShort, getPeriodsPerYear } from '../lib/financial';
+import { usePrivacy } from '../contexts/PrivacyContext';
 import { calculateAllDeductions, STATES, FILING_STATUSES } from '../lib/taxEngine';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { useAppMode } from '../contexts/AppModeContext';
@@ -270,6 +271,7 @@ function ConfirmDelete({ name, onClose, onConfirm }) {
 
 export default function Expenses() {
   const { isSimpleMode } = useAppMode();
+  usePrivacy();
   const { streams } = useIncomeStreams();
   const { profile, saveTaxProfile } = useTaxProfile();
   const { retirement, saveRetirement } = useRetirement();
@@ -579,7 +581,7 @@ export default function Expenses() {
                 <BarChart data={summaryBarData}>
                   <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
                   <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => formatCurrencyShort(v)} />
                   <Tooltip formatter={(v) => formatCurrency(Math.abs(v))} />
                   <Bar dataKey="amount" radius={[6, 6, 0, 0]}>
                     {summaryBarData.map((entry, i) => (

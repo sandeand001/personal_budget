@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { Plane, Plus, Trash2, Pencil, X, ChevronDown, ChevronRight, Target, Check, DollarSign, Info } from 'lucide-react';
 import { useVacations, useVacationExpenses, useVacationContributions } from '../hooks/useFirestore';
 import { formatCurrency } from '../lib/financial';
+import { usePrivacy } from '../contexts/PrivacyContext';
 import { cn } from '../lib/utils';
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip,
@@ -427,6 +428,7 @@ function VacationCard({ vacation, onEdit, onDelete }) {
 
 export default function Vacations() {
   const { vacations, loading, addVacation, updateVacation, removeVacation } = useVacations();
+  usePrivacy();
   const [modalOpen, setModalOpen] = useState(false);
   const [editItem, setEditItem] = useState(null);
   const [deleteItem, setDeleteItem] = useState(null);

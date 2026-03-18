@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
 import { Wallet, Plus, Trash2, Pencil, X, ChevronDown, ChevronRight, ShoppingCart, Info, Calendar, BarChart3 } from 'lucide-react';
 import { useBudgetProfiles, useBudgetTransactions, useIncomeStreams, useExpenses } from '../hooks/useFirestore';
-import { FREQUENCIES, MONTH_NAMES, MONTH_NAMES_FULL, getAmountForMonth, toMonthly, toAnnual, formatCurrency } from '../lib/financial';
+import { FREQUENCIES, MONTH_NAMES, MONTH_NAMES_FULL, getAmountForMonth, toMonthly, toAnnual, formatCurrency, formatCurrencyShort } from '../lib/financial';
+import { usePrivacy } from '../contexts/PrivacyContext';
 import { useAppMode } from '../contexts/AppModeContext';
 import { cn } from '../lib/utils';
 import {
@@ -311,7 +312,7 @@ function ProfileCard({ profile, onEdit, onDelete }) {
                   <BarChart data={barData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                     <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                    <YAxis tickFormatter={(v) => `$${v}`} tick={{ fontSize: 11 }} />
+                    <YAxis tickFormatter={(v) => formatCurrencyShort(v)} tick={{ fontSize: 11 }} />
                     <Tooltip formatter={(v) => formatCurrency(v)} />
                     <Legend />
                     <Bar dataKey="Budget" fill="#10b981" radius={[4, 4, 0, 0]} />
@@ -441,7 +442,7 @@ function AnnualOverview() {
           <BarChart data={monthlyData}>
             <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
             <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-            <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `$${(v / 1000).toFixed(1)}k`} />
+            <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => formatCurrencyShort(v)} />
             <Tooltip formatter={(v) => formatCurrency(v)} />
             <Legend />
             <Bar dataKey="income" name="Income" fill="#10b981" radius={[4, 4, 0, 0]} />
@@ -522,6 +523,7 @@ function AnnualOverview() {
 
 export default function Budget() {
   const { profiles, loading, addProfile, updateProfile, removeProfile } = useBudgetProfiles();
+  usePrivacy();
   const [modalOpen, setModalOpen] = useState(false);
   const [editItem, setEditItem] = useState(null);
   const [deleteItem, setDeleteItem] = useState(null);

@@ -2,7 +2,8 @@
 import { DollarSign, Plus, Trash2, Pencil, Info, X } from 'lucide-react';
 import { useIncomeStreams } from '../hooks/useFirestore';
 import { useAppMode } from '../contexts/AppModeContext';
-import { FREQUENCIES, NEEDS_MONTH_PICKER, MONTH_NAMES, defaultMonthsForFrequency, toMonthly, toAnnual, formatCurrency } from '../lib/financial';
+import { FREQUENCIES, NEEDS_MONTH_PICKER, MONTH_NAMES, defaultMonthsForFrequency, toMonthly, toAnnual, formatCurrency, formatCurrencyShort } from '../lib/financial';
+import { usePrivacy } from '../contexts/PrivacyContext';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 
 const INCOME_TYPES = [
@@ -155,6 +156,7 @@ function ConfirmDelete({ name, onClose, onConfirm }) {
 export default function Income() {
   const { streams, loading, addStream, updateStream, removeStream } = useIncomeStreams();
   const { isSimpleMode } = useAppMode();
+  usePrivacy();
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
@@ -347,7 +349,7 @@ export default function Income() {
                   <BarChart data={barData}>
                     <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
                     <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                    <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => `$${v.toLocaleString()}`} />
+                    <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => formatCurrencyShort(v)} />
                     <Tooltip formatter={(v) => formatCurrency(v)} />
                     <Bar dataKey="monthly" fill="#10b981" radius={[6, 6, 0, 0]} />
                   </BarChart>

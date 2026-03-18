@@ -65,7 +65,14 @@ export function getAmountForMonth(amount, frequency, applicableMonths, month) {
   return months.includes(month) ? amount : 0;
 }
 
+// ─── Privacy Mode ───
+let _privacyMode = false;
+
+export function setPrivacyMode(on) { _privacyMode = !!on; }
+export function getPrivacyMode() { return _privacyMode; }
+
 export function formatCurrency(value) {
+  if (_privacyMode) return '$•••••';
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
@@ -74,6 +81,7 @@ export function formatCurrency(value) {
 }
 
 export function formatCurrencyShort(value) {
+  if (_privacyMode) return '$•••••';
   if (Math.abs(value) >= 1000) {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',

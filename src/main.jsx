@@ -6,6 +6,7 @@ import App from './App.jsx'
 import { AuthProvider } from './contexts/AuthContext'
 import { HouseholdProvider } from './contexts/HouseholdContext'
 import { AppModeProvider } from './contexts/AppModeContext'
+import { PrivacyProvider } from './contexts/PrivacyContext'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
@@ -13,7 +14,9 @@ createRoot(document.getElementById('root')).render(
       <AuthProvider>
         <HouseholdProvider>
           <AppModeProvider>
-            <App />
+            <PrivacyProvider>
+              <App />
+            </PrivacyProvider>
           </AppModeProvider>
         </HouseholdProvider>
       </AuthProvider>

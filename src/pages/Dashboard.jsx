@@ -16,6 +16,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useAppMode } from '../contexts/AppModeContext';
 import { useIncomeStreams, useTaxProfile, useRetirement, useExpenses, useBudgetProfiles, useVacations, useDebts } from '../hooks/useFirestore';
 import { toAnnual, toMonthly, formatCurrency, getPeriodsPerYear } from '../lib/financial';
+import { usePrivacy } from '../contexts/PrivacyContext';
 import { calculateAllDeductions } from '../lib/taxEngine';
 import { cn } from '../lib/utils';
 
@@ -44,6 +45,7 @@ function SummaryCard({ title, value, subtitle, icon: Icon, color, to }) {
 export default function Dashboard() {
   const { user } = useAuth();
   const { isSimpleMode, toggleMode } = useAppMode();
+  usePrivacy();
   const firstName = user?.displayName?.split(' ')[0] || 'there';
 
   const { streams } = useIncomeStreams();

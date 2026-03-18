@@ -13,8 +13,11 @@ import {
   Menu,
   X,
   User,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { usePrivacy } from '../contexts/PrivacyContext';
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -30,6 +33,7 @@ export default function AppLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { isPrivate, togglePrivacy } = usePrivacy();
 
   async function handleLogout() {
     await logout();
@@ -74,8 +78,20 @@ export default function AppLayout() {
               ))}
             </nav>
 
-            {/* User + Logout */}
+            {/* User + Privacy + Logout */}
             <div className="flex items-center gap-3">
+              <button
+                onClick={togglePrivacy}
+                title={isPrivate ? 'Show values' : 'Hide values'}
+                className={cn(
+                  'p-2 rounded-lg transition',
+                  isPrivate
+                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                    : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:text-gray-300 dark:hover:bg-gray-700'
+                )}
+              >
+                {isPrivate ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
               <div className="hidden sm:flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
                 <User className="w-4 h-4" />
                 {user?.displayName || user?.email}
@@ -122,6 +138,18 @@ export default function AppLayout() {
                   {item.label}
                 </NavLink>
               ))}
+              <button
+                onClick={togglePrivacy}
+                className={cn(
+                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium w-full transition',
+                  isPrivate
+                    ? 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400'
+                    : 'text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700'
+                )}
+              >
+                {isPrivate ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                {isPrivate ? 'Show Values' : 'Hide Values'}
+              </button>
               <button
                 onClick={handleLogout}
                 className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 w-full transition"

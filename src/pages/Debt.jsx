@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
 import { Landmark, Plus, Trash2, Pencil, X, TrendingDown } from 'lucide-react';
 import { useDebts } from '../hooks/useFirestore';
-import { formatCurrency, FREQUENCIES, toMonthly, toAnnual } from '../lib/financial';
+import { formatCurrency, formatCurrencyShort, FREQUENCIES, toMonthly, toAnnual } from '../lib/financial';
+import { usePrivacy } from '../contexts/PrivacyContext';
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -163,6 +164,7 @@ function calcPayoff(balance, annualRate, monthlyPayment) {
 
 export default function Debt() {
   const { debts, loading, addDebt, updateDebt, removeDebt } = useDebts();
+  usePrivacy();
   const [modalOpen, setModalOpen] = useState(false);
   const [editItem, setEditItem] = useState(null);
   const [deleteItem, setDeleteItem] = useState(null);
@@ -334,7 +336,7 @@ export default function Debt() {
               <BarChart data={barData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                <YAxis tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 12 }} />
+                <YAxis tickFormatter={(v) => formatCurrencyShort(v)} tick={{ fontSize: 12 }} />
                 <Tooltip formatter={(v) => formatCurrency(v)} />
                 <Legend />
                 <Bar dataKey="Balance" fill="#ef4444" radius={[4, 4, 0, 0]} />
