@@ -110,6 +110,19 @@ export default function Dashboard() {
   // Vacation with highest savings progress
   const nextVacation = vacations.length > 0 ? vacations[0] : null;
 
+  const freqLabel = (f) => {
+    switch (f) {
+      case 'weekly': return '/wk';
+      case 'biweekly': return '/2wk';
+      case 'semimonthly': return '/2×mo';
+      case 'monthly': return '/mo';
+      case 'bimonthly': return '/2mo';
+      case 'quarterly': return '/qtr';
+      case 'annual': return '/yr';
+      default: return '/mo';
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Welcome */}
