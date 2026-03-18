@@ -1,11 +1,12 @@
 import { useState, useMemo } from 'react';
-import { Receipt, Plus, Trash2, Pencil, Info, Calculator, X, Settings, ChevronDown, ChevronUp } from 'lucide-react';
-import { useIncomeStreams, useTaxProfile, useRetirement, useExpenses } from '../hooks/useFirestore';
-import { FREQUENCIES, NEEDS_MONTH_PICKER, MONTH_NAMES, defaultMonthsForFrequency, toAnnual, toMonthly, formatCurrency, formatCurrencyShort, getPeriodsPerYear } from '../lib/financial';
+import { Receipt, Plus, Trash2, Pencil, Info, Calculator, X, Settings, ChevronDown, ChevronUp, Lock, Unlock, DollarSign, Banknote } from 'lucide-react';
+import { useIncomeStreams, useTaxProfile, useRetirement, useExpenses, useFixedExpenses, useMonthlyIncomeLog, useMonthlyExpenseLog, useCurrentBalance, useBudgetProfiles } from '../hooks/useFirestore';
+import { FREQUENCIES, NEEDS_MONTH_PICKER, MONTH_NAMES, MONTH_NAMES_FULL, defaultMonthsForFrequency, getAmountForMonth, toAnnual, toMonthly, formatCurrency, formatCurrencyShort, getPeriodsPerYear } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
 import { calculateAllDeductions, STATES, FILING_STATUSES } from '../lib/taxEngine';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { useAppMode } from '../contexts/AppModeContext';
+import { cn } from '../lib/utils';
 
 const COLORS = ['#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6', '#06b6d4', '#10b981', '#ec4899', '#84cc16'];
 
@@ -154,9 +155,9 @@ function RetirementForm({ retirement, onSave }) {
   );
 }
 
-// ─── Expense Modal ───
+// ─── Expense Modal (shared for fixed & variable) ───
 
-function ExpenseModal({ onClose, onSave, initial }) {
+function ExpenseModal({ onClose, onSave, initial, title }) {
   const [form, setForm] = useState(initial || {
     name: '',
     amount: '',
@@ -196,7 +197,7 @@ function ExpenseModal({ onClose, onSave, initial }) {
           <X className="w-5 h-5" />
         </button>
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-          {initial ? 'Edit Expense' : 'Add Expense'}
+          {title || (initial ? 'Edit Expense' : 'Add Expense')}
         </h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -267,6 +268,200 @@ function ConfirmDelete({ name, onClose, onConfirm }) {
   );
 }
 
+// ─── Expense Lock-In Modal ───
+
+function ExpenseLockInModal({ fixedExpenses, variableExpenses, income, currentBalance, currentMonth, lockedData, optedProfiles, onClose, onLock }) {
+  const [fixedEntries, setFixedEntries] = useState(() => {
+    if (lockedData?.fixedEntries) return lockedData.fixedEntries;
+    return fixedExpenses.map((e) => ({
+      id: e.id,
+      name: e.name,
+      estimated: getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth),
+      actual: getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth),
+    }));
+  });
+  const [varEntries, setVarEntries] = useState(() => {
+    if (lockedData?.varEntries) return lockedData.varEntries;
+    return variableExpenses.map((e) => ({
+      id: e.id,
+      name: e.name,
+      estimated: getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth),
+      actual: getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth),
+    }));
+  });
+  const [useBalance, setUseBalance] = useState(lockedData?.useBalance ?? (currentBalance?.enabled || false));
+  const [balanceAmount, setBalanceAmount] = useState(lockedData?.balanceAmount ?? (currentBalance?.amount || 0));
+  const [splitOverrides, setSplitOverrides] = useState(() => {
+    if (lockedData?.splitOverrides) return lockedData.splitOverrides;
+    return null; // null = even split
+  });
+
+  const fixedTotal = fixedEntries.reduce((s, e) => s + (parseFloat(e.actual) || 0), 0);
+  const varTotal = varEntries.reduce((s, e) => s + (parseFloat(e.actual) || 0), 0);
+  const totalExpenses = fixedTotal + varTotal;
+  const startingAmount = useBalance ? balanceAmount : income;
+  const spendingMoney = Math.max(0, startingAmount - totalExpenses);
+  const perPerson = optedProfiles.length > 0 ? spendingMoney / optedProfiles.length : spendingMoney;
+
+  // Build per-profile amounts
+  const profileAmounts = optedProfiles.map((p) => {
+    if (splitOverrides && splitOverrides[p.id] !== undefined) {
+      return { id: p.id, name: p.name, amount: splitOverrides[p.id] };
+    }
+    return { id: p.id, name: p.name, amount: perPerson };
+  });
+
+  function updateSplit(id, val) {
+    const overrides = { ...(splitOverrides || {}) };
+    overrides[id] = parseFloat(val) || 0;
+    setSplitOverrides(overrides);
+  }
+
+  function resetToEvenSplit() {
+    setSplitOverrides(null);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-lg p-6 relative max-h-[90vh] overflow-y-auto">
+        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+          <X className="w-5 h-5" />
+        </button>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
+          Lock In {MONTH_NAMES_FULL[currentMonth - 1]} Expenses
+        </h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+          Adjust amounts to match actuals, then lock in to distribute spending money.
+        </p>
+
+        {/* Income Source Toggle */}
+        <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+          <div className="flex items-center gap-3 mb-2">
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" checked={useBalance} onChange={(e) => setUseBalance(e.target.checked)} className="sr-only peer" />
+              <div className="w-9 h-5 bg-gray-300 peer-checked:bg-blue-500 rounded-full peer-focus:ring-2 peer-focus:ring-blue-300 transition after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
+            </label>
+            <span className="text-sm text-gray-700 dark:text-gray-300">Use bank balance instead of income</span>
+          </div>
+          {useBalance && (
+            <input type="number" min="0" step="0.01" value={balanceAmount}
+              onChange={(e) => setBalanceAmount(parseFloat(e.target.value) || 0)}
+              placeholder="Current bank balance"
+              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+          )}
+          {!useBalance && (
+            <p className="text-xs text-gray-500">Starting from income: {formatCurrency(income)}</p>
+          )}
+        </div>
+
+        {/* Fixed Expenses */}
+        {fixedEntries.length > 0 && (
+          <div className="mb-4">
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Fixed Expenses</h3>
+            <div className="space-y-2">
+              {fixedEntries.map((entry, i) => (
+                <div key={entry.id} className="flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{entry.name}</p>
+                    <p className="text-xs text-gray-400">Est: {formatCurrency(entry.estimated)}</p>
+                  </div>
+                  <input type="number" min="0" step="0.01" value={entry.actual}
+                    onChange={(e) => { const u = [...fixedEntries]; u[i] = { ...u[i], actual: parseFloat(e.target.value) || 0 }; setFixedEntries(u); }}
+                    className="w-28 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm text-right" />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Variable Expenses */}
+        {varEntries.length > 0 && (
+          <div className="mb-4">
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Variable Expenses</h3>
+            <div className="space-y-2">
+              {varEntries.map((entry, i) => (
+                <div key={entry.id} className="flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{entry.name}</p>
+                    <p className="text-xs text-gray-400">Est: {formatCurrency(entry.estimated)}</p>
+                  </div>
+                  <input type="number" min="0" step="0.01" value={entry.actual}
+                    onChange={(e) => { const u = [...varEntries]; u[i] = { ...u[i], actual: parseFloat(e.target.value) || 0 }; setVarEntries(u); }}
+                    className="w-28 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm text-right" />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Spending Money Split */}
+        <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-sm text-gray-600 dark:text-gray-400">Starting Amount</span>
+            <span className="text-sm font-medium text-gray-900 dark:text-white">{formatCurrency(startingAmount)}</span>
+          </div>
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-sm text-gray-600 dark:text-gray-400">Total Expenses</span>
+            <span className="text-sm font-medium text-red-500">-{formatCurrency(totalExpenses)}</span>
+          </div>
+          <div className="flex justify-between items-center mb-3">
+            <span className="text-sm font-semibold text-gray-900 dark:text-white">Spending Money</span>
+            <span className={cn('text-lg font-bold', spendingMoney > 0 ? 'text-emerald-600' : 'text-red-500')}>{formatCurrency(spendingMoney)}</span>
+          </div>
+
+          {optedProfiles.length > 0 ? (
+            <div className="space-y-2 mb-4">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Per Person</h4>
+                {splitOverrides && (
+                  <button onClick={resetToEvenSplit} className="text-xs text-blue-600 hover:text-blue-700">Reset to even split</button>
+                )}
+              </div>
+              {profileAmounts.map((pa) => (
+                <div key={pa.id} className="flex items-center justify-between gap-3">
+                  <span className="text-sm text-gray-700 dark:text-gray-300">{pa.name}</span>
+                  <input type="number" min="0" step="0.01" value={splitOverrides ? (splitOverrides[pa.id] ?? perPerson) : perPerson.toFixed(2)}
+                    onChange={(e) => updateSplit(pa.id, e.target.value)}
+                    className="w-28 px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm text-right" />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-amber-600 dark:text-amber-400 mb-4">No budget profiles are opted into spending money split. Edit a profile to enable it.</p>
+          )}
+
+          <div className="flex gap-3">
+            <button onClick={onClose}
+              className="flex-1 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition">Cancel</button>
+            <button onClick={() => {
+              const finalAmounts = {};
+              profileAmounts.forEach((pa) => {
+                finalAmounts[pa.id] = splitOverrides && splitOverrides[pa.id] !== undefined ? splitOverrides[pa.id] : perPerson;
+              });
+              onLock({
+                fixedEntries,
+                varEntries,
+                fixedTotal,
+                varTotal,
+                totalExpenses,
+                startingAmount,
+                spendingMoney,
+                useBalance,
+                balanceAmount: useBalance ? balanceAmount : null,
+                splitOverrides: splitOverrides || null,
+                profileAmounts: finalAmounts,
+              });
+            }}
+              className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition flex items-center justify-center gap-2">
+              <Lock className="w-4 h-4" /> Lock In
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Expenses Page ───
 
 export default function Expenses() {
@@ -276,9 +471,34 @@ export default function Expenses() {
   const { profile, saveTaxProfile } = useTaxProfile();
   const { retirement, saveRetirement } = useRetirement();
   const { expenses, addExpense, updateExpense, removeExpense } = useExpenses();
+  const { expenses: fixedExpensesList, addExpense: addFixed, updateExpense: updateFixed, removeExpense: removeFixed } = useFixedExpenses();
+  const { logs: incomeLogs } = useMonthlyIncomeLog();
+  const { logs: expenseLogs, lockMonth: lockExpenseMonth, unlockMonth: unlockExpenseMonth } = useMonthlyExpenseLog();
+  const { balance: currentBalance, saveBalance } = useCurrentBalance();
+  const { profiles: budgetProfiles, updateProfile: updateBudgetProfile } = useBudgetProfiles();
   const [showModal, setShowModal] = useState(false);
+  const [showFixedModal, setShowFixedModal] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [editingFixed, setEditingFixed] = useState(null);
   const [deleting, setDeleting] = useState(null);
+  const [deletingFixed, setDeletingFixed] = useState(null);
+  const [showLockModal, setShowLockModal] = useState(false);
+
+  const now = new Date();
+  const currentMonth = now.getMonth() + 1;
+  const currentYear = now.getFullYear();
+  const yearMonth = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
+  const lockedExpenseData = expenseLogs[yearMonth];
+  const isExpenseLocked = !!lockedExpenseData;
+
+  // Income for this month (use locked income if available)
+  const lockedIncomeData = incomeLogs[yearMonth];
+  const thisMonthIncome = lockedIncomeData
+    ? lockedIncomeData.total
+    : streams.reduce((sum, s) => sum + getAmountForMonth(s.amount, s.frequency, s.applicableMonths, currentMonth), 0);
+
+  // Budget profiles opted into spending money split
+  const optedProfiles = budgetProfiles.filter((p) => p.includeInSpendingSplit !== false);
 
   // Prepare income streams with periodsPerYear for tax engine
   const preparedStreams = streams.map((s) => ({
@@ -292,11 +512,25 @@ export default function Expenses() {
     retirement: retirement || {},
   }), [preparedStreams, profile, retirement]);
 
+  // Fixed expenses totals (monthly)
+  const totalFixedMonthly = fixedExpensesList.reduce((sum, e) => sum + toMonthly(e.amount, e.frequency), 0);
+  const totalFixedThisMonth = fixedExpensesList.reduce((sum, e) => sum + getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth), 0);
+
   // Variable expenses totals (monthly)
   const totalVariableMonthly = expenses.reduce((sum, e) => sum + toMonthly(e.amount, e.frequency), 0);
   const totalVariableAnnual = expenses.reduce((sum, e) => sum + toAnnual(e.amount, e.frequency), 0);
+  const totalVariableThisMonth = expenses.reduce((sum, e) => sum + getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth), 0);
 
-  const netAfterAll = deductions.netAnnual - totalVariableAnnual;
+  const totalFixedAnnual = fixedExpensesList.reduce((sum, e) => sum + toAnnual(e.amount, e.frequency), 0);
+  const totalAllExpensesMonthly = totalFixedMonthly + totalVariableMonthly;
+  const totalAllExpensesThisMonth = totalFixedThisMonth + totalVariableThisMonth;
+
+  const netAfterAll = deductions.netAnnual - totalVariableAnnual - totalFixedAnnual;
+
+  // Spending money (estimated, not locked)
+  const startingAmount = (currentBalance?.enabled && currentBalance?.amount) ? currentBalance.amount : thisMonthIncome;
+  const estimatedSpendingMoney = startingAmount - totalAllExpensesThisMonth;
+  const spendingPerPerson = optedProfiles.length > 0 ? estimatedSpendingMoney / optedProfiles.length : estimatedSpendingMoney;
 
   // Chart data
   const deductionPieData = [
@@ -304,6 +538,7 @@ export default function Expenses() {
     { name: `State Tax (${deductions.stateName})`, value: deductions.stateTax },
     { name: 'Social Security & Medicare', value: deductions.totalFICA },
     { name: '401(k)', value: deductions.k401.total },
+    { name: 'Fixed Expenses', value: totalFixedAnnual },
     { name: 'Variable Expenses', value: totalVariableAnnual },
   ].filter((d) => d.value > 0);
 
@@ -311,7 +546,8 @@ export default function Expenses() {
     { name: 'Gross', amount: deductions.totalGrossAnnual },
     { name: 'Tax+FICA', amount: -(deductions.federalTaxAfterCredits + deductions.stateTax + deductions.totalFICA) },
     { name: '401(k)', amount: -deductions.k401.total },
-    { name: 'Expenses', amount: -totalVariableAnnual },
+    { name: 'Fixed', amount: -totalFixedAnnual },
+    { name: 'Variable', amount: -totalVariableAnnual },
     { name: 'Net', amount: netAfterAll },
   ];
 
@@ -324,9 +560,54 @@ export default function Expenses() {
     setEditing(null);
   }
 
+  function handleSaveFixed(data) {
+    if (editingFixed) {
+      updateFixed(editingFixed.id, data);
+    } else {
+      addFixed(data);
+    }
+    setEditingFixed(null);
+  }
+
   function handleDeleteExpense() {
     removeExpense(deleting.id);
     setDeleting(null);
+  }
+
+  function handleDeleteFixed() {
+    removeFixed(deletingFixed.id);
+    setDeletingFixed(null);
+  }
+
+  async function handleLockExpenses(payload) {
+    await lockExpenseMonth(yearMonth, payload);
+    // Add spending money to each opted-in budget profile
+    if (payload.profileAmounts) {
+      for (const [profileId, amount] of Object.entries(payload.profileAmounts)) {
+        const profile = budgetProfiles.find((p) => p.id === profileId);
+        if (profile) {
+          await updateBudgetProfile(profileId, {
+            totalBudget: (profile.totalBudget || 0) + amount,
+          });
+        }
+      }
+    }
+    setShowLockModal(false);
+  }
+
+  async function handleUnlockExpenses() {
+    // Reverse the spending money addition
+    if (lockedExpenseData?.profileAmounts) {
+      for (const [profileId, amount] of Object.entries(lockedExpenseData.profileAmounts)) {
+        const profile = budgetProfiles.find((p) => p.id === profileId);
+        if (profile) {
+          await updateBudgetProfile(profileId, {
+            totalBudget: Math.max(0, (profile.totalBudget || 0) - amount),
+          });
+        }
+      }
+    }
+    await unlockExpenseMonth(yearMonth);
   }
 
   const freqLabel = (f) => FREQUENCIES.find((x) => x.value === f)?.label || f;
@@ -339,10 +620,91 @@ export default function Expenses() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{isSimpleMode ? 'Expenses' : 'Expenses & Deductions'}</h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1">{isSimpleMode ? 'Track the bills and expenses you pay each month.' : 'Calculate deductions, track expenses, and see your net income.'}</p>
         </div>
-        <button onClick={() => { setEditing(null); setShowModal(true); }}
-          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition">
-          <Plus className="w-4 h-4" /> Add Expense
-        </button>
+      </div>
+
+      {/* This Month Lock-In Card */}
+      <div className={`rounded-xl p-5 text-white ${isExpenseLocked ? 'bg-gradient-to-r from-blue-600 to-indigo-700' : 'bg-gradient-to-r from-orange-500 to-rose-600'}`}>
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              {isExpenseLocked ? <Lock className="w-4 h-4" /> : <Receipt className="w-4 h-4" />}
+              <h2 className="text-sm font-medium text-white/80">{MONTH_NAMES_FULL[currentMonth - 1]} {currentYear}</h2>
+            </div>
+            {isExpenseLocked ? (
+              <>
+                <p className="text-3xl font-bold">{formatCurrency(lockedExpenseData.spendingMoney)}</p>
+                <p className="text-sm text-white/70 mt-1">Spending money locked — distributed to {Object.keys(lockedExpenseData.profileAmounts || {}).length} profile(s)</p>
+              </>
+            ) : (
+              <>
+                <p className="text-3xl font-bold">{formatCurrency(Math.max(0, estimatedSpendingMoney))}</p>
+                <p className="text-sm text-white/70 mt-1">
+                  Estimated spending money ({formatCurrency(startingAmount)} income − {formatCurrency(totalAllExpensesThisMonth)} expenses)
+                </p>
+              </>
+            )}
+          </div>
+          <div className="flex flex-col gap-2">
+            {isExpenseLocked ? (
+              <button onClick={handleUnlockExpenses}
+                className="flex items-center gap-2 px-3 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium transition">
+                <Unlock className="w-4 h-4" /> Unlock
+              </button>
+            ) : (
+              <button onClick={() => setShowLockModal(true)}
+                className="flex items-center gap-2 px-3 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium transition">
+                <Lock className="w-4 h-4" /> Lock In
+              </button>
+            )}
+          </div>
+        </div>
+        {/* Per-person display */}
+        {!isExpenseLocked && optedProfiles.length > 0 && estimatedSpendingMoney > 0 && (
+          <div className="mt-3 pt-3 border-t border-white/20">
+            <p className="text-xs text-white/70 mb-1">Estimated per person (even split):</p>
+            <div className="flex flex-wrap gap-3">
+              {optedProfiles.map((p) => (
+                <span key={p.id} className="text-sm font-medium">{p.name}: {formatCurrency(spendingPerPerson)}</span>
+              ))}
+            </div>
+          </div>
+        )}
+        {isExpenseLocked && lockedExpenseData.profileAmounts && (
+          <div className="mt-3 pt-3 border-t border-white/20">
+            <p className="text-xs text-white/70 mb-1">Distributed to budgets:</p>
+            <div className="flex flex-wrap gap-3">
+              {Object.entries(lockedExpenseData.profileAmounts).map(([id, amt]) => {
+                const bp = budgetProfiles.find((p) => p.id === id);
+                return <span key={id} className="text-sm font-medium">{bp?.name || 'Profile'}: {formatCurrency(amt)}</span>;
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Optional Current Balance */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+        <div className="flex items-center gap-3 mb-2">
+          <Banknote className="w-5 h-5 text-gray-400" />
+          <div className="flex items-center gap-3 flex-1">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Bank Account Balance (Optional)</h3>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" checked={currentBalance?.enabled || false}
+                onChange={(e) => saveBalance({ ...currentBalance, enabled: e.target.checked })} className="sr-only peer" />
+              <div className="w-9 h-5 bg-gray-300 peer-checked:bg-blue-500 rounded-full peer-focus:ring-2 peer-focus:ring-blue-300 transition after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
+            </label>
+          </div>
+        </div>
+        {currentBalance?.enabled && (
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-500">$</span>
+            <input type="number" min="0" step="0.01" value={currentBalance?.amount || ''}
+              onChange={(e) => saveBalance({ ...currentBalance, amount: parseFloat(e.target.value) || 0 })}
+              placeholder="Enter current balance"
+              className="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+          </div>
+        )}
+        <p className="text-xs text-gray-400 mt-1">When enabled, spending money is calculated from this balance instead of income streams.</p>
       </div>
 
       {/* How to use */}
@@ -353,16 +715,16 @@ export default function Expenses() {
         <div className="mt-3 text-sm text-blue-700 dark:text-blue-400 space-y-1">
           {isSimpleMode ? (
             <>
-              <p>Add the bills and expenses you pay each month (rent, car payment, utilities, subscriptions, etc.).</p>
-              <p>Your disposable income is calculated as your take-home pay minus these expenses.</p>
-              <p className="italic">Tip: Switch to Detailed mode on the Dashboard to track taxes, retirement contributions, and more.</p>
+              <p><strong>Fixed expenses</strong> are predictable bills (rent, mortgage, car payment, insurance).</p>
+              <p><strong>Variable expenses</strong> are things like savings transfers, credit card payments, extra debt payments.</p>
+              <p>Your <strong>spending money</strong> = income − fixed − variable expenses, split among opted-in budget profiles.</p>
+              <p>Click <strong>Lock In</strong> to finalize for the month and distribute spending money to your budgets.</p>
             </>
           ) : (
             <>
-              <p>Set up your tax profile (filing status, state, dependents) to auto-calculate withholdings.</p>
-              <p>Configure 401(k) contributions (traditional and/or Roth).</p>
-              <p>Add variable expenses like rent, car payment, utilities, subscriptions, etc.</p>
-              <p className="italic">Warning: Tax calculations are estimates only, not tax advice.</p>
+              <p>Set up your tax profile and 401(k) to auto-calculate deductions.</p>
+              <p><strong>Fixed expenses</strong> are predictable recurring bills. <strong>Variable expenses</strong> are flexible payments.</p>
+              <p>Lock in expenses to distribute spending money to budget profiles.</p>
             </>
           )}
         </div>
@@ -452,15 +814,24 @@ export default function Expenses() {
         </>
       )}
 
-      {/* Variable Expenses */}
+      {/* ═══ Fixed Expenses ═══ */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
         <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
-          <h3 className="font-semibold text-gray-900 dark:text-white">Variable Expenses</h3>
-          <span className="text-sm text-gray-500">{formatCurrency(totalVariableMonthly)}/mo</span>
+          <div>
+            <h3 className="font-semibold text-gray-900 dark:text-white">Fixed Expenses</h3>
+            <p className="text-xs text-gray-400 mt-0.5">Predictable recurring bills (rent, mortgage, insurance, etc.)</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-gray-500">{formatCurrency(totalFixedMonthly)}/mo</span>
+            <button onClick={() => { setEditingFixed(null); setShowFixedModal(true); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-medium transition">
+              <Plus className="w-3.5 h-3.5" /> Add
+            </button>
+          </div>
         </div>
-        {expenses.length === 0 ? (
+        {fixedExpensesList.length === 0 ? (
           <div className="p-8 text-center text-gray-400 text-sm">
-            No variable expenses added yet. Click "Add Expense" above.
+            No fixed expenses yet. Add your recurring bills above.
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -470,7 +841,72 @@ export default function Expenses() {
                   <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Name</th>
                   <th className="text-right px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Amount</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Frequency</th>
-                  <th className="text-right px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Monthly</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-500 dark:text-gray-400">This Month</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                {fixedExpensesList.map((e) => (
+                  <tr key={e.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{e.name}</td>
+                    <td className="px-4 py-3 text-right text-gray-900 dark:text-white">{formatCurrency(e.amount)}</td>
+                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{freqLabel(e.frequency)}</td>
+                    <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-white">{formatCurrency(getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth))}</td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <button onClick={() => { setEditingFixed(e); setShowFixedModal(true); }}
+                          className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 hover:text-blue-600 transition">
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => setDeletingFixed(e)}
+                          className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 hover:text-red-600 transition">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="bg-gray-50 dark:bg-gray-700/50 font-semibold">
+                  <td className="px-4 py-3 text-gray-900 dark:text-white" colSpan={3}>Total Fixed</td>
+                  <td className="px-4 py-3 text-right text-gray-900 dark:text-white">{formatCurrency(totalFixedThisMonth)}</td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ═══ Variable Expenses ═══ */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
+        <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold text-gray-900 dark:text-white">Variable Expenses</h3>
+            <p className="text-xs text-gray-400 mt-0.5">Savings, credit card payments, extra debt payments, etc.</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-gray-500">{formatCurrency(totalVariableMonthly)}/mo</span>
+            <button onClick={() => { setEditing(null); setShowModal(true); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-medium transition">
+              <Plus className="w-3.5 h-3.5" /> Add
+            </button>
+          </div>
+        </div>
+        {expenses.length === 0 ? (
+          <div className="p-8 text-center text-gray-400 text-sm">
+            No variable expenses yet. Click "Add" above.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 dark:bg-gray-700/50">
+                <tr>
+                  <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Name</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Amount</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Frequency</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-500 dark:text-gray-400">This Month</th>
                   <th className="text-right px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Actions</th>
                 </tr>
               </thead>
@@ -480,7 +916,7 @@ export default function Expenses() {
                     <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{e.name}</td>
                     <td className="px-4 py-3 text-right text-gray-900 dark:text-white">{formatCurrency(e.amount)}</td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{freqLabel(e.frequency)}</td>
-                    <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-white">{formatCurrency(toMonthly(e.amount, e.frequency))}</td>
+                    <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-white">{formatCurrency(getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth))}</td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
                         <button onClick={() => { setEditing(e); setShowModal(true); }}
@@ -496,16 +932,66 @@ export default function Expenses() {
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr className="bg-gray-50 dark:bg-gray-700/50 font-semibold">
+                  <td className="px-4 py-3 text-gray-900 dark:text-white" colSpan={3}>Total Variable</td>
+                  <td className="px-4 py-3 text-right text-gray-900 dark:text-white">{formatCurrency(totalVariableThisMonth)}</td>
+                  <td></td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         )}
       </div>
 
+      {/* ═══ Spending Money Summary ═══ */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+        <h3 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+          <DollarSign className="w-5 h-5 text-emerald-600" /> Spending Money Breakdown — {MONTH_NAMES_FULL[currentMonth - 1]}
+        </h3>
+        <div className="space-y-2">
+          <div className="flex justify-between text-sm">
+            <span className="text-gray-600 dark:text-gray-400">{currentBalance?.enabled ? 'Bank Balance' : 'Income This Month'}</span>
+            <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(startingAmount)}</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span className="text-gray-600 dark:text-gray-400">Fixed Expenses</span>
+            <span className="font-medium text-red-500">-{formatCurrency(totalFixedThisMonth)}</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span className="text-gray-600 dark:text-gray-400">Variable Expenses</span>
+            <span className="font-medium text-red-500">-{formatCurrency(totalVariableThisMonth)}</span>
+          </div>
+          <hr className="border-gray-200 dark:border-gray-700" />
+          <div className="flex justify-between">
+            <span className="font-semibold text-gray-900 dark:text-white">Spending Money</span>
+            <span className={cn('text-xl font-bold', estimatedSpendingMoney >= 0 ? 'text-emerald-600' : 'text-red-500')}>{formatCurrency(estimatedSpendingMoney)}</span>
+          </div>
+          {optedProfiles.length > 0 && estimatedSpendingMoney > 0 && (
+            <>
+              <hr className="border-gray-200 dark:border-gray-700" />
+              <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">Per Person (even split among {optedProfiles.length} profile{optedProfiles.length > 1 ? 's' : ''})</p>
+              {optedProfiles.map((p) => (
+                <div key={p.id} className="flex justify-between text-sm">
+                  <span className="text-gray-700 dark:text-gray-300">{p.name}</span>
+                  <span className="font-medium text-emerald-600">{formatCurrency(spendingPerPerson)}</span>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      </div>
+
       {/* Net Income Summary */}
       {isSimpleMode ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-            <p className="text-sm text-gray-500 dark:text-gray-400">Total Expenses</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Fixed Expenses</p>
+            <p className="text-2xl font-bold text-red-500 mt-1">{formatCurrency(totalFixedAnnual)}</p>
+            <p className="text-xs text-gray-400 mt-1">{formatCurrency(totalFixedMonthly)}/mo</p>
+          </div>
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+            <p className="text-sm text-gray-500 dark:text-gray-400">Variable Expenses</p>
             <p className="text-2xl font-bold text-red-500 mt-1">{formatCurrency(totalVariableAnnual)}</p>
             <p className="text-xs text-gray-400 mt-1">{formatCurrency(totalVariableMonthly)}/mo</p>
           </div>
@@ -513,11 +999,11 @@ export default function Expenses() {
             <p className="text-sm text-gray-500 dark:text-gray-400">Disposable Income</p>
             {(() => {
               const totalIncomeMonthly = streams.reduce((sum, s) => sum + toMonthly(s.amount, s.frequency), 0);
-              const disposable = totalIncomeMonthly - totalVariableMonthly;
+              const disposable = totalIncomeMonthly - totalAllExpensesMonthly;
               return (
                 <>
                   <p className={`text-2xl font-bold mt-1 ${disposable >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{formatCurrency(disposable)}</p>
-                  <p className="text-xs text-gray-400 mt-1">Take-home income minus expenses (monthly)</p>
+                  <p className="text-xs text-gray-400 mt-1">Take-home income minus all expenses (monthly)</p>
                 </>
               );
             })()}
@@ -544,15 +1030,18 @@ export default function Expenses() {
 
       {/* Charts */}
       {isSimpleMode ? (
-        expenses.length > 0 && (
+        (fixedExpensesList.length > 0 || expenses.length > 0) && (
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Expense Breakdown (Monthly)</h3>
             <ResponsiveContainer width="100%" height={280}>
               <PieChart>
                 <Pie
-                  data={expenses.map((e) => ({ name: e.name, value: toMonthly(e.amount, e.frequency) }))}
+                  data={[
+                    ...fixedExpensesList.map((e) => ({ name: `${e.name} (fixed)`, value: toMonthly(e.amount, e.frequency) })),
+                    ...expenses.map((e) => ({ name: e.name, value: toMonthly(e.amount, e.frequency) })),
+                  ]}
                   cx="50%" cy="50%" innerRadius={50} outerRadius={100} paddingAngle={3} dataKey="value">
-                  {expenses.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  {[...fixedExpensesList, ...expenses].map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                 </Pie>
                 <Tooltip formatter={(v) => formatCurrency(v)} />
                 <Legend />
@@ -605,13 +1094,38 @@ export default function Expenses() {
       {/* Modals */}
       {showModal && (
         <ExpenseModal
+          title={editing ? 'Edit Variable Expense' : 'Add Variable Expense'}
           initial={editing ? { name: editing.name, amount: editing.amount, frequency: editing.frequency, applicableMonths: editing.applicableMonths || [] } : null}
           onClose={() => { setShowModal(false); setEditing(null); }}
           onSave={handleSaveExpense}
         />
       )}
+      {showFixedModal && (
+        <ExpenseModal
+          title={editingFixed ? 'Edit Fixed Expense' : 'Add Fixed Expense'}
+          initial={editingFixed ? { name: editingFixed.name, amount: editingFixed.amount, frequency: editingFixed.frequency, applicableMonths: editingFixed.applicableMonths || [] } : null}
+          onClose={() => { setShowFixedModal(false); setEditingFixed(null); }}
+          onSave={handleSaveFixed}
+        />
+      )}
       {deleting && (
         <ConfirmDelete name={deleting.name} onClose={() => setDeleting(null)} onConfirm={handleDeleteExpense} />
+      )}
+      {deletingFixed && (
+        <ConfirmDelete name={deletingFixed.name} onClose={() => setDeletingFixed(null)} onConfirm={handleDeleteFixed} />
+      )}
+      {showLockModal && (
+        <ExpenseLockInModal
+          fixedExpenses={fixedExpensesList}
+          variableExpenses={expenses}
+          income={thisMonthIncome}
+          currentBalance={currentBalance}
+          currentMonth={currentMonth}
+          lockedData={lockedExpenseData}
+          optedProfiles={optedProfiles}
+          onClose={() => setShowLockModal(false)}
+          onLock={handleLockExpenses}
+        />
       )}
     </div>
   );

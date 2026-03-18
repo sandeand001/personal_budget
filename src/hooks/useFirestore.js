@@ -398,3 +398,101 @@ export function useMonthlyIncomeLog() {
 
   return { logs, loading, lockMonth, unlockMonth };
 }
+
+// ─── Fixed Expenses ───
+
+export function useFixedExpenses() {
+  const { householdId } = useHousehold();
+  const [expenses, setExpenses] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!householdId) return;
+    const q = query(
+      collection(db, 'households', householdId, 'fixedExpenses'),
+      orderBy('createdAt', 'desc')
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setExpenses(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      setLoading(false);
+    });
+    return unsub;
+  }, [householdId]);
+
+  async function addExpense(data) {
+    return addDoc(collection(db, 'households', householdId, 'fixedExpenses'), {
+      ...data,
+      createdAt: serverTimestamp(),
+    });
+  }
+
+  async function updateExpense(id, data) {
+    return updateDoc(doc(db, 'households', householdId, 'fixedExpenses', id), data);
+  }
+
+  async function removeExpense(id) {
+    return deleteDoc(doc(db, 'households', householdId, 'fixedExpenses', id));
+  }
+
+  return { expenses, loading, addExpense, updateExpense, removeExpense };
+}
+
+// ─── Monthly Expense Lock-In Log ───
+// Stores locked-in expense data per month (keyed by "YYYY-MM")
+
+export function useMonthlyExpenseLog() {
+  const { householdId } = useHousehold();
+  const [logs, setLogs] = useState({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!householdId) return;
+    const unsub = onSnapshot(
+      collection(db, 'households', householdId, 'monthlyExpenseLogs'),
+      (snap) => {
+        const data = {};
+        snap.docs.forEach((d) => { data[d.id] = d.data(); });
+        setLogs(data);
+        setLoading(false);
+      }
+    );
+    return unsub;
+  }, [householdId]);
+
+  async function lockMonth(yearMonth, payload) {
+    return setDoc(
+      doc(db, 'households', householdId, 'monthlyExpenseLogs', yearMonth),
+      { ...payload, lockedAt: serverTimestamp() }
+    );
+  }
+
+  async function unlockMonth(yearMonth) {
+    return deleteDoc(doc(db, 'households', householdId, 'monthlyExpenseLogs', yearMonth));
+  }
+
+  return { logs, loading, lockMonth, unlockMonth };
+}
+
+// ─── Current Balance (optional override) ───
+
+export function useCurrentBalance() {
+  const { householdId } = useHousehold();
+  const [balance, setBalance] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!householdId) return;
+    const ref = doc(db, 'households', householdId, 'settings', 'currentBalance');
+    const unsub = onSnapshot(ref, (snap) => {
+      setBalance(snap.exists() ? snap.data() : null);
+      setLoading(false);
+    });
+    return unsub;
+  }, [householdId]);
+
+  async function saveBalance(data) {
+    return setDoc(doc(db, 'households', householdId, 'settings', 'currentBalance'), data, { merge: true });
+  }
+
+  return { balance, loading, saveBalance };
+}

@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Wallet, Plus, Trash2, Pencil, X, ChevronDown, ChevronRight, ShoppingCart, Info, Calendar, BarChart3, Lock } from 'lucide-react';
-import { useBudgetProfiles, useBudgetTransactions, useIncomeStreams, useExpenses, useMonthlyIncomeLog } from '../hooks/useFirestore';
+import { useBudgetProfiles, useBudgetTransactions, useIncomeStreams, useExpenses, useFixedExpenses, useMonthlyIncomeLog } from '../hooks/useFirestore';
 import { FREQUENCIES, MONTH_NAMES, MONTH_NAMES_FULL, getAmountForMonth, toMonthly, toAnnual, formatCurrency, formatCurrencyShort } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
 import { useAppMode } from '../contexts/AppModeContext';
@@ -31,6 +31,7 @@ function ProfileModal({ onClose, onSave, initial }) {
     name: '',
     totalBudget: '',
     frequency: 'monthly',
+    includeInSpendingSplit: true,
     categories: DEFAULT_CATEGORIES.map((c) => ({ name: c, allocated: '' })),
   });
 
@@ -54,7 +55,7 @@ function ProfileModal({ onClose, onSave, initial }) {
     const categories = form.categories
       .filter((c) => c.name.trim())
       .map((c) => ({ name: c.name.trim(), allocated: parseFloat(c.allocated) || 0 }));
-    onSave({ name: form.name, totalBudget, frequency: form.frequency, categories });
+    onSave({ name: form.name, totalBudget, frequency: form.frequency, includeInSpendingSplit: form.includeInSpendingSplit !== false, categories });
     onClose();
   }
 
@@ -92,6 +93,18 @@ function ProfileModal({ onClose, onSave, initial }) {
                 {FREQUENCIES.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
               </select>
             </div>
+          </div>
+
+          {/* Spending Money Split */}
+          <div className="flex items-center gap-3">
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" checked={form.includeInSpendingSplit !== false}
+                onChange={(e) => setForm({ ...form, includeInSpendingSplit: e.target.checked })} className="sr-only peer" />
+              <div className="w-9 h-5 bg-gray-300 peer-checked:bg-emerald-500 rounded-full peer-focus:ring-2 peer-focus:ring-emerald-300 transition after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
+            </label>
+            <span className="text-sm text-gray-700 dark:text-gray-300">
+              Include in spending money split
+            </span>
           </div>
 
           {/* Categories */}
@@ -389,6 +402,7 @@ function ProfileCard({ profile, onEdit, onDelete }) {
 function AnnualOverview() {
   const { streams } = useIncomeStreams();
   const { expenses } = useExpenses();
+  const { expenses: fixedExpensesList } = useFixedExpenses();
   const { logs } = useMonthlyIncomeLog();
   const { isSimpleMode } = useAppMode();
   const currentYear = new Date().getFullYear();
@@ -405,7 +419,11 @@ function AnnualOverview() {
             (sum, s) => sum + getAmountForMonth(s.amount, s.frequency, s.applicableMonths, month),
             0
           );
-      const exp = expenses.reduce(
+      const fixedExp = fixedExpensesList.reduce(
+        (sum, e) => sum + getAmountForMonth(e.amount, e.frequency, e.applicableMonths, month),
+        0
+      );
+      const varExp = expenses.reduce(
         (sum, e) => sum + getAmountForMonth(e.amount, e.frequency, e.applicableMonths, month),
         0
       );
@@ -414,12 +432,14 @@ function AnnualOverview() {
         name: MONTH_NAMES[i],
         fullName: MONTH_NAMES_FULL[i],
         income,
-        expenses: exp,
-        net: income - exp,
+        expenses: fixedExp + varExp,
+        fixedExpenses: fixedExp,
+        variableExpenses: varExp,
+        net: income - fixedExp - varExp,
         isLocked: !!locked,
       };
     });
-  }, [streams, expenses, logs, currentYear]);
+  }, [streams, expenses, fixedExpensesList, logs, currentYear]);
 
   const annualIncome = monthlyData.reduce((s, m) => s + m.income, 0);
   const annualExpenses = monthlyData.reduce((s, m) => s + m.expenses, 0);
@@ -427,6 +447,7 @@ function AnnualOverview() {
 
   // Items that only occur in certain months
   const irregularIncome = streams.filter((s) => ['quarterly', 'bimonthly', 'annual'].includes(s.frequency));
+  const irregularFixed = fixedExpensesList.filter((e) => ['quarterly', 'bimonthly', 'annual'].includes(e.frequency));
   const irregularExpenses = expenses.filter((e) => ['quarterly', 'bimonthly', 'annual'].includes(e.frequency));
 
   return (
@@ -511,7 +532,7 @@ function AnnualOverview() {
       </div>
 
       {/* Irregular Items Callout */}
-      {(irregularIncome.length > 0 || irregularExpenses.length > 0) && (
+      {(irregularIncome.length > 0 || irregularFixed.length > 0 || irregularExpenses.length > 0) && (
         <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4">
           <h4 className="text-sm font-semibold text-amber-800 dark:text-amber-300 mb-2 flex items-center gap-2">
             <Calendar className="w-4 h-4" /> Non-Monthly Items
@@ -524,6 +545,12 @@ function AnnualOverview() {
               <div key={s.id} className="flex justify-between">
                 <span>+ {s.name} ({FREQUENCIES.find((f) => f.value === s.frequency)?.label})</span>
                 <span>{formatCurrency(s.amount)} in {(s.applicableMonths || []).map((m) => MONTH_NAMES[m - 1]).join(', ')}</span>
+              </div>
+            ))}
+            {irregularFixed.map((e) => (
+              <div key={e.id} className="flex justify-between">
+                <span>− {e.name} (fixed, {FREQUENCIES.find((f) => f.value === e.frequency)?.label})</span>
+                <span>{formatCurrency(e.amount)} in {(e.applicableMonths || []).map((m) => MONTH_NAMES[m - 1]).join(', ')}</span>
               </div>
             ))}
             {irregularExpenses.map((e) => (
@@ -626,6 +653,7 @@ export default function Budget() {
                 setEditItem({
                   ...pr,
                   totalBudget: pr.totalBudget?.toString() || '',
+                  includeInSpendingSplit: pr.includeInSpendingSplit !== false,
                   categories: (pr.categories || []).map((c) => ({
                     name: c.name,
                     allocated: c.allocated?.toString() || '',
