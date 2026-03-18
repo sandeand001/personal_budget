@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Receipt, Plus, Trash2, Pencil, Info, Calculator, X, Settings, ChevronDown, ChevronUp } from 'lucide-react';
 import { useIncomeStreams, useTaxProfile, useRetirement, useExpenses } from '../hooks/useFirestore';
-import { FREQUENCIES, toAnnual, toMonthly, formatCurrency, getPeriodsPerYear } from '../lib/financial';
+import { FREQUENCIES, NEEDS_MONTH_PICKER, MONTH_NAMES, defaultMonthsForFrequency, toAnnual, toMonthly, formatCurrency, getPeriodsPerYear } from '../lib/financial';
 import { calculateAllDeductions, STATES, FILING_STATUSES } from '../lib/taxEngine';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { useAppMode } from '../contexts/AppModeContext';
@@ -160,7 +160,27 @@ function ExpenseModal({ onClose, onSave, initial }) {
     name: '',
     amount: '',
     frequency: 'monthly',
+    applicableMonths: [],
   });
+
+  function handleFrequencyChange(freq) {
+    const needsPicker = NEEDS_MONTH_PICKER.includes(freq);
+    setForm({
+      ...form,
+      frequency: freq,
+      applicableMonths: needsPicker ? defaultMonthsForFrequency(freq) : [],
+    });
+  }
+
+  function toggleMonth(m) {
+    const months = form.applicableMonths || [];
+    setForm({
+      ...form,
+      applicableMonths: months.includes(m)
+        ? months.filter((x) => x !== m)
+        : [...months, m].sort((a, b) => a - b),
+    });
+  }
 
   function handleSubmit(e) {
     e.preventDefault();
@@ -194,12 +214,29 @@ function ExpenseModal({ onClose, onSave, initial }) {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Frequency</label>
-              <select value={form.frequency} onChange={(e) => setForm({ ...form, frequency: e.target.value })}
+              <select value={form.frequency} onChange={(e) => handleFrequencyChange(e.target.value)}
                 className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm">
                 {FREQUENCIES.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
               </select>
             </div>
           </div>
+          {NEEDS_MONTH_PICKER.includes(form.frequency) && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Which months does this occur?</label>
+              <div className="grid grid-cols-4 gap-1.5">
+                {MONTH_NAMES.map((name, i) => {
+                  const month = i + 1;
+                  const selected = (form.applicableMonths || []).includes(month);
+                  return (
+                    <button key={month} type="button" onClick={() => toggleMonth(month)}
+                      className={`px-2 py-1.5 rounded-lg text-xs font-medium transition ${selected ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400 ring-1 ring-emerald-300 dark:ring-emerald-700' : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'}`}>
+                      {name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition">Cancel</button>
             <button type="submit" className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition">
@@ -566,7 +603,7 @@ export default function Expenses() {
       {/* Modals */}
       {showModal && (
         <ExpenseModal
-          initial={editing ? { name: editing.name, amount: editing.amount, frequency: editing.frequency } : null}
+          initial={editing ? { name: editing.name, amount: editing.amount, frequency: editing.frequency, applicableMonths: editing.applicableMonths || [] } : null}
           onClose={() => { setShowModal(false); setEditing(null); }}
           onSave={handleSaveExpense}
         />
