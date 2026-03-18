@@ -5,13 +5,16 @@ import './index.css'
 import App from './App.jsx'
 import { AuthProvider } from './contexts/AuthContext'
 import { HouseholdProvider } from './contexts/HouseholdContext'
+import { AppModeProvider } from './contexts/AppModeContext'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <HashRouter>
       <AuthProvider>
         <HouseholdProvider>
-          <App />
+          <AppModeProvider>
+            <App />
+          </AppModeProvider>
         </HouseholdProvider>
       </AuthProvider>
     </HashRouter>

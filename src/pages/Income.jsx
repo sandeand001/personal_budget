@@ -1,6 +1,7 @@
 ﻿import { useState } from 'react';
 import { DollarSign, Plus, Trash2, Pencil, Info, X } from 'lucide-react';
 import { useIncomeStreams } from '../hooks/useFirestore';
+import { useAppMode } from '../contexts/AppModeContext';
 import { FREQUENCIES, toMonthly, toAnnual, formatCurrency } from '../lib/financial';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 
@@ -11,7 +12,7 @@ const INCOME_TYPES = [
 
 const COLORS = ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#84cc16'];
 
-function IncomeModal({ onClose, onSave, initial }) {
+function IncomeModal({ onClose, onSave, initial, isSimpleMode }) {
   const [form, setForm] = useState(initial || {
     name: '',
     type: 'w2',
@@ -33,7 +34,7 @@ function IncomeModal({ onClose, onSave, initial }) {
           <X className="w-5 h-5" />
         </button>
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-          {initial ? 'Edit Income Stream' : 'Add Income Stream'}
+          {initial ? 'Edit Income' : (isSimpleMode ? 'Add Take-Home Income' : 'Add Income Stream')}
         </h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -41,20 +42,22 @@ function IncomeModal({ onClose, onSave, initial }) {
             <input
               type="text" required value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="e.g., Primary Salary, Freelance, VA Disability"
+              placeholder={isSimpleMode ? 'e.g., My Paycheck, Side Job' : 'e.g., Primary Salary, Freelance, VA Disability'}
               className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className={isSimpleMode ? 'grid grid-cols-2 gap-3' : 'grid grid-cols-2 gap-3'}>
+            {!isSimpleMode && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Type</label>
+                <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm">
+                  {INCOME_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
+              </div>
+            )}
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Type</label>
-              <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm">
-                {INCOME_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Amount ($)</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{isSimpleMode ? 'Take-Home Amount ($)' : 'Amount ($)'}</label>
               <input
                 type="number" required min="0" step="0.01" value={form.amount}
                 onChange={(e) => setForm({ ...form, amount: e.target.value })}
@@ -70,21 +73,23 @@ function IncomeModal({ onClose, onSave, initial }) {
               {FREQUENCIES.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
             </select>
           </div>
-          <div className="flex items-center gap-3">
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input type="checkbox" checked={form.isTaxable} onChange={(e) => setForm({ ...form, isTaxable: e.target.checked })} className="sr-only peer" />
-              <div className="w-9 h-5 bg-gray-300 peer-checked:bg-emerald-500 rounded-full peer-focus:ring-2 peer-focus:ring-emerald-300 transition after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
-            </label>
-            <span className="text-sm text-gray-700 dark:text-gray-300">
-              {form.isTaxable ? 'Taxable income' : 'Non-taxable (e.g., VA disability)'}
-            </span>
-          </div>
+          {!isSimpleMode && (
+            <div className="flex items-center gap-3">
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" checked={form.isTaxable} onChange={(e) => setForm({ ...form, isTaxable: e.target.checked })} className="sr-only peer" />
+                <div className="w-9 h-5 bg-gray-300 peer-checked:bg-emerald-500 rounded-full peer-focus:ring-2 peer-focus:ring-emerald-300 transition after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
+              </label>
+              <span className="text-sm text-gray-700 dark:text-gray-300">
+                {form.isTaxable ? 'Taxable income' : 'Non-taxable (e.g., VA disability)'}
+              </span>
+            </div>
+          )}
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition">
               Cancel
             </button>
             <button type="submit" className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition">
-              {initial ? 'Save Changes' : 'Add Income'}
+              {initial ? 'Save Changes' : (isSimpleMode ? 'Add Income' : 'Add Income')}
             </button>
           </div>
         </form>
@@ -112,6 +117,7 @@ function ConfirmDelete({ name, onClose, onConfirm }) {
 
 export default function Income() {
   const { streams, loading, addStream, updateStream, removeStream } = useIncomeStreams();
+  const { isSimpleMode } = useAppMode();
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
@@ -160,7 +166,7 @@ export default function Income() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Income</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">Manage your income streams and track total gross income.</p>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">{isSimpleMode ? 'Enter your take-home pay from each source.' : 'Manage your income streams and track total gross income.'}</p>
         </div>
         <button onClick={() => { setEditing(null); setShowModal(true); }}
           className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition">
@@ -174,27 +180,48 @@ export default function Income() {
           <Info className="w-4 h-4" /> How to use this page
         </summary>
         <div className="mt-3 text-sm text-blue-700 dark:text-blue-400 space-y-1">
-          <p>Add each source of income — salary, side jobs, rental income, VA disability, etc.</p>
-          <p>Set the frequency (weekly, bi-weekly, semi-monthly, monthly, or annual) and whether it's taxable.</p>
-          <p>Your totals are automatically calculated and shown on the Dashboard.</p>
+          {isSimpleMode ? (
+            <>
+              <p>Add each source of take-home income — the amount you actually receive after taxes and deductions.</p>
+              <p>This is typically the net pay shown on your paycheck or bank deposit.</p>
+              <p>Set the frequency (weekly, bi-weekly, semi-monthly, monthly, or annual).</p>
+              <p className="italic">Tip: Switch to Detailed Mode on the Dashboard for gross income tracking with tax calculations.</p>
+            </>
+          ) : (
+            <>
+              <p>Add each source of income — salary, side jobs, rental income, VA disability, etc.</p>
+              <p>Set the frequency (weekly, bi-weekly, semi-monthly, monthly, or annual) and whether it's taxable.</p>
+              <p>Your totals are automatically calculated and shown on the Dashboard.</p>
+            </>
+          )}
         </div>
       </details>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className={`grid grid-cols-1 ${isSimpleMode ? 'sm:grid-cols-2' : 'sm:grid-cols-3'} gap-4`}>
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Total Gross (Monthly)</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{isSimpleMode ? 'Total Take-Home (Monthly)' : 'Total Gross (Monthly)'}</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{formatCurrency(totalMonthly)}</p>
           <p className="text-xs text-gray-400 mt-1">{formatCurrency(totalAnnual)} / year</p>
         </div>
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Taxable Income (Annual)</p>
-          <p className="text-2xl font-bold text-emerald-600 mt-1">{formatCurrency(taxableAnnual)}</p>
-        </div>
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Non-Taxable (Annual)</p>
-          <p className="text-2xl font-bold text-blue-600 mt-1">{formatCurrency(nonTaxableAnnual)}</p>
-        </div>
+        {!isSimpleMode && (
+          <>
+            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+              <p className="text-sm text-gray-500 dark:text-gray-400">Taxable Income (Annual)</p>
+              <p className="text-2xl font-bold text-emerald-600 mt-1">{formatCurrency(taxableAnnual)}</p>
+            </div>
+            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+              <p className="text-sm text-gray-500 dark:text-gray-400">Non-Taxable (Annual)</p>
+              <p className="text-2xl font-bold text-blue-600 mt-1">{formatCurrency(nonTaxableAnnual)}</p>
+            </div>
+          </>
+        )}
+        {isSimpleMode && (
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+            <p className="text-sm text-gray-500 dark:text-gray-400">Total Take-Home (Annual)</p>
+            <p className="text-2xl font-bold text-emerald-600 mt-1">{formatCurrency(totalAnnual)}</p>
+          </div>
+        )}
       </div>
 
       {streams.length === 0 ? (
@@ -212,11 +239,11 @@ export default function Income() {
                 <thead className="bg-gray-50 dark:bg-gray-700/50">
                   <tr>
                     <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Name</th>
-                    <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Type</th>
+                    {!isSimpleMode && <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Type</th>}
                     <th className="text-right px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Amount</th>
                     <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Frequency</th>
                     <th className="text-right px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Monthly</th>
-                    <th className="text-center px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Taxable</th>
+                    {!isSimpleMode && <th className="text-center px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Taxable</th>}
                     <th className="text-right px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Actions</th>
                   </tr>
                 </thead>
@@ -224,21 +251,25 @@ export default function Income() {
                   {streams.map((s) => (
                     <tr key={s.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
                       <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{s.name}</td>
-                      <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
-                        <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${s.type === 'w2' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'}`}>
-                          {s.type === 'w2' ? 'W-2' : '1099'}
-                        </span>
-                      </td>
+                      {!isSimpleMode && (
+                        <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                          <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${s.type === 'w2' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'}`}>
+                            {s.type === 'w2' ? 'W-2' : '1099'}
+                          </span>
+                        </td>
+                      )}
                       <td className="px-4 py-3 text-right text-gray-900 dark:text-white">{formatCurrency(s.amount)}</td>
                       <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{freqLabel(s.frequency)}</td>
                       <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-white">{formatCurrency(toMonthly(s.amount, s.frequency))}</td>
-                      <td className="px-4 py-3 text-center">
-                        {s.isTaxable ? (
-                          <span className="text-emerald-500 text-xs font-medium">Yes</span>
-                        ) : (
-                          <span className="text-gray-400 text-xs font-medium">No</span>
-                        )}
-                      </td>
+                      {!isSimpleMode && (
+                        <td className="px-4 py-3 text-center">
+                          {s.isTaxable ? (
+                            <span className="text-emerald-500 text-xs font-medium">Yes</span>
+                          ) : (
+                            <span className="text-gray-400 text-xs font-medium">No</span>
+                          )}
+                        </td>
+                      )}
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1">
                           <button onClick={() => { setEditing(s); setShowModal(true); }}
@@ -272,18 +303,20 @@ export default function Income() {
                 </PieChart>
               </ResponsiveContainer>
             </div>
-            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Taxable vs Non-Taxable (Monthly)</h3>
-              <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={barData}>
-                  <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                  <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                  <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => `$${v.toLocaleString()}`} />
-                  <Tooltip formatter={(v) => formatCurrency(v)} />
-                  <Bar dataKey="monthly" fill="#10b981" radius={[6, 6, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            {!isSimpleMode && (
+              <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Taxable vs Non-Taxable (Monthly)</h3>
+                <ResponsiveContainer width="100%" height={250}>
+                  <BarChart data={barData}>
+                    <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                    <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                    <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => `$${v.toLocaleString()}`} />
+                    <Tooltip formatter={(v) => formatCurrency(v)} />
+                    <Bar dataKey="monthly" fill="#10b981" radius={[6, 6, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
           </div>
         </>
       )}
@@ -291,6 +324,7 @@ export default function Income() {
       {/* Modals */}
       {showModal && (
         <IncomeModal
+          isSimpleMode={isSimpleMode}
           initial={editing ? { name: editing.name, type: editing.type, amount: editing.amount, frequency: editing.frequency, isTaxable: editing.isTaxable } : null}
           onClose={() => { setShowModal(false); setEditing(null); }}
           onSave={handleSave}

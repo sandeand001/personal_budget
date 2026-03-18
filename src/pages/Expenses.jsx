@@ -4,6 +4,7 @@ import { useIncomeStreams, useTaxProfile, useRetirement, useExpenses } from '../
 import { FREQUENCIES, toAnnual, toMonthly, formatCurrency, getPeriodsPerYear } from '../lib/financial';
 import { calculateAllDeductions, STATES, FILING_STATUSES } from '../lib/taxEngine';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
+import { useAppMode } from '../contexts/AppModeContext';
 
 const COLORS = ['#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6', '#06b6d4', '#10b981', '#ec4899', '#84cc16'];
 
@@ -231,6 +232,7 @@ function ConfirmDelete({ name, onClose, onConfirm }) {
 // ─── Main Expenses Page ───
 
 export default function Expenses() {
+  const { isSimpleMode } = useAppMode();
   const { streams } = useIncomeStreams();
   const { profile, saveTaxProfile } = useTaxProfile();
   const { retirement, saveRetirement } = useRetirement();
@@ -295,8 +297,8 @@ export default function Expenses() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Expenses & Deductions</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">Calculate deductions, track expenses, and see your net income.</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{isSimpleMode ? 'Expenses' : 'Expenses & Deductions'}</h1>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">{isSimpleMode ? 'Track the bills and expenses you pay each month.' : 'Calculate deductions, track expenses, and see your net income.'}</p>
         </div>
         <button onClick={() => { setEditing(null); setShowModal(true); }}
           className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition">
@@ -310,92 +312,106 @@ export default function Expenses() {
           <Info className="w-4 h-4" /> How to use this page
         </summary>
         <div className="mt-3 text-sm text-blue-700 dark:text-blue-400 space-y-1">
-          <p>Set up your tax profile (filing status, state, dependents) to auto-calculate withholdings.</p>
-          <p>Configure 401(k) contributions (traditional and/or Roth).</p>
-          <p>Add variable expenses like rent, car payment, utilities, subscriptions, etc.</p>
-          <p className="italic">Warning: Tax calculations are estimates only, not tax advice.</p>
+          {isSimpleMode ? (
+            <>
+              <p>Add the bills and expenses you pay each month (rent, car payment, utilities, subscriptions, etc.).</p>
+              <p>Your disposable income is calculated as your take-home pay minus these expenses.</p>
+              <p className="italic">Tip: Switch to Detailed mode on the Dashboard to track taxes, retirement contributions, and more.</p>
+            </>
+          ) : (
+            <>
+              <p>Set up your tax profile (filing status, state, dependents) to auto-calculate withholdings.</p>
+              <p>Configure 401(k) contributions (traditional and/or Roth).</p>
+              <p>Add variable expenses like rent, car payment, utilities, subscriptions, etc.</p>
+              <p className="italic">Warning: Tax calculations are estimates only, not tax advice.</p>
+            </>
+          )}
         </div>
       </details>
 
-      {/* Tax Refund / Owed Card */}
-      <div className={`rounded-xl p-5 text-white ${refundAmount > 0 ? 'bg-gradient-to-r from-emerald-500 to-teal-600' : refundAmount < 0 ? 'bg-gradient-to-r from-red-500 to-orange-500' : 'bg-gradient-to-r from-gray-500 to-gray-600'}`}>
-        <div className="flex items-center gap-3 mb-2">
-          <Calculator className="w-5 h-5" />
-          <h2 className="text-lg font-semibold">Projected Tax Refund / Amount Owed</h2>
-        </div>
-        {profile ? (
-          <>
-            <p className="text-3xl font-bold">
-              {refundAmount >= 0 ? '+' : ''}{formatCurrency(refundAmount)}
-            </p>
-            <p className="text-white/80 text-sm mt-1">
-              {refundAmount > 0 ? 'Estimated refund from extra withholding' : refundAmount < 0 ? 'Estimated amount owed' : 'On track — no extra withholding'}
-            </p>
-          </>
-        ) : (
-          <>
-            <p className="text-3xl font-bold">$0.00</p>
-            <p className="text-white/80 text-sm mt-1">Set up your tax profile to see your estimate</p>
-          </>
-        )}
-      </div>
-
-      {/* Tax Profile & Retirement Settings */}
-      <div className="space-y-3">
-        <TaxProfileForm profile={profile} onSave={saveTaxProfile} />
-        <RetirementForm retirement={retirement} onSave={saveRetirement} />
-      </div>
-
-      {/* Auto-Calculated Deductions Breakdown */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
-        <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Auto-Calculated Deductions (Annual)</h3>
-        <div className="space-y-3">
-          <div className="flex justify-between text-sm">
-            <span className="text-gray-600 dark:text-gray-400">Total Taxable Income</span>
-            <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(deductions.totalTaxableAnnual)}</span>
-          </div>
-          <div className="flex justify-between text-sm">
-            <span className="text-gray-600 dark:text-gray-400">Standard Deduction</span>
-            <span className="font-medium text-red-500">-{formatCurrency(deductions.standardDeduction)}</span>
-          </div>
-          <hr className="border-gray-100 dark:border-gray-700" />
-          <div className="flex justify-between text-sm">
-            <span className="text-gray-600 dark:text-gray-400">Federal Income Tax</span>
-            <span className="font-medium text-red-500">-{formatCurrency(deductions.federalTax)}</span>
-          </div>
-          {deductions.childCredit > 0 && (
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-600 dark:text-gray-400 pl-4">Child Tax Credit ({(profile?.dependents || 0)} child{(profile?.dependents || 0) !== 1 ? 'ren' : ''})</span>
-              <span className="font-medium text-emerald-500">+{formatCurrency(deductions.childCredit)}</span>
+      {!isSimpleMode && (
+        <>
+          {/* Tax Refund / Owed Card */}
+          <div className={`rounded-xl p-5 text-white ${refundAmount > 0 ? 'bg-gradient-to-r from-emerald-500 to-teal-600' : refundAmount < 0 ? 'bg-gradient-to-r from-red-500 to-orange-500' : 'bg-gradient-to-r from-gray-500 to-gray-600'}`}>
+            <div className="flex items-center gap-3 mb-2">
+              <Calculator className="w-5 h-5" />
+              <h2 className="text-lg font-semibold">Projected Tax Refund / Amount Owed</h2>
             </div>
-          )}
-          <div className="flex justify-between text-sm">
-            <span className="text-gray-600 dark:text-gray-400">Federal Tax After Credits</span>
-            <span className="font-medium text-red-500">-{formatCurrency(deductions.federalTaxAfterCredits)}</span>
+            {profile ? (
+              <>
+                <p className="text-3xl font-bold">
+                  {refundAmount >= 0 ? '+' : ''}{formatCurrency(refundAmount)}
+                </p>
+                <p className="text-white/80 text-sm mt-1">
+                  {refundAmount > 0 ? 'Estimated refund from extra withholding' : refundAmount < 0 ? 'Estimated amount owed' : 'On track — no extra withholding'}
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-3xl font-bold">$0.00</p>
+                <p className="text-white/80 text-sm mt-1">Set up your tax profile to see your estimate</p>
+              </>
+            )}
           </div>
-          <div className="flex justify-between text-sm">
-            <span className="text-gray-600 dark:text-gray-400">State Tax ({deductions.stateName})</span>
-            <span className="font-medium text-red-500">-{formatCurrency(deductions.stateTax)}</span>
+
+          {/* Tax Profile & Retirement Settings */}
+          <div className="space-y-3">
+            <TaxProfileForm profile={profile} onSave={saveTaxProfile} />
+            <RetirementForm retirement={retirement} onSave={saveRetirement} />
           </div>
-          <div className="flex justify-between text-sm">
-            <span className="text-gray-600 dark:text-gray-400">FICA (Social Security + Medicare)</span>
-            <span className="font-medium text-red-500">-{formatCurrency(deductions.totalFICA)}</span>
+
+          {/* Auto-Calculated Deductions Breakdown */}
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+            <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Auto-Calculated Deductions (Annual)</h3>
+            <div className="space-y-3">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600 dark:text-gray-400">Total Taxable Income</span>
+                <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(deductions.totalTaxableAnnual)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600 dark:text-gray-400">Standard Deduction</span>
+                <span className="font-medium text-red-500">-{formatCurrency(deductions.standardDeduction)}</span>
+              </div>
+              <hr className="border-gray-100 dark:border-gray-700" />
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600 dark:text-gray-400">Federal Income Tax</span>
+                <span className="font-medium text-red-500">-{formatCurrency(deductions.federalTax)}</span>
+              </div>
+              {deductions.childCredit > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600 dark:text-gray-400 pl-4">Child Tax Credit ({(profile?.dependents || 0)} child{(profile?.dependents || 0) !== 1 ? 'ren' : ''})</span>
+                  <span className="font-medium text-emerald-500">+{formatCurrency(deductions.childCredit)}</span>
+                </div>
+              )}
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600 dark:text-gray-400">Federal Tax After Credits</span>
+                <span className="font-medium text-red-500">-{formatCurrency(deductions.federalTaxAfterCredits)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600 dark:text-gray-400">State Tax ({deductions.stateName})</span>
+                <span className="font-medium text-red-500">-{formatCurrency(deductions.stateTax)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600 dark:text-gray-400">FICA (Social Security + Medicare)</span>
+                <span className="font-medium text-red-500">-{formatCurrency(deductions.totalFICA)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600 dark:text-gray-400">401(k) Traditional</span>
+                <span className="font-medium text-red-500">-{formatCurrency(deductions.k401.traditional)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600 dark:text-gray-400">401(k) Roth</span>
+                <span className="font-medium text-red-500">-{formatCurrency(deductions.k401.roth)}</span>
+              </div>
+              <hr className="border-gray-100 dark:border-gray-700" />
+              <div className="flex justify-between text-sm font-semibold">
+                <span className="text-gray-900 dark:text-white">Total Auto Deductions</span>
+                <span className="text-red-500">-{formatCurrency(deductions.totalDeductions)}</span>
+              </div>
+            </div>
           </div>
-          <div className="flex justify-between text-sm">
-            <span className="text-gray-600 dark:text-gray-400">401(k) Traditional</span>
-            <span className="font-medium text-red-500">-{formatCurrency(deductions.k401.traditional)}</span>
-          </div>
-          <div className="flex justify-between text-sm">
-            <span className="text-gray-600 dark:text-gray-400">401(k) Roth</span>
-            <span className="font-medium text-red-500">-{formatCurrency(deductions.k401.roth)}</span>
-          </div>
-          <hr className="border-gray-100 dark:border-gray-700" />
-          <div className="flex justify-between text-sm font-semibold">
-            <span className="text-gray-900 dark:text-white">Total Auto Deductions</span>
-            <span className="text-red-500">-{formatCurrency(deductions.totalDeductions)}</span>
-          </div>
-        </div>
-      </div>
+        </>
+      )}
 
       {/* Variable Expenses */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
@@ -447,61 +463,105 @@ export default function Expenses() {
       </div>
 
       {/* Net Income Summary */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Gross Annual</p>
-          <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{formatCurrency(deductions.totalGrossAnnual)}</p>
+      {isSimpleMode ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+            <p className="text-sm text-gray-500 dark:text-gray-400">Total Expenses</p>
+            <p className="text-2xl font-bold text-red-500 mt-1">{formatCurrency(totalVariableAnnual)}</p>
+            <p className="text-xs text-gray-400 mt-1">{formatCurrency(totalVariableMonthly)}/mo</p>
+          </div>
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+            <p className="text-sm text-gray-500 dark:text-gray-400">Disposable Income</p>
+            {(() => {
+              const totalIncomeMonthly = streams.reduce((sum, s) => sum + toMonthly(s.amount, s.frequency), 0);
+              const disposable = totalIncomeMonthly - totalVariableMonthly;
+              return (
+                <>
+                  <p className={`text-2xl font-bold mt-1 ${disposable >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{formatCurrency(disposable)}</p>
+                  <p className="text-xs text-gray-400 mt-1">Take-home income minus expenses (monthly)</p>
+                </>
+              );
+            })()}
+          </div>
         </div>
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Net After Deductions</p>
-          <p className="text-2xl font-bold text-emerald-600 mt-1">{formatCurrency(deductions.netAnnual)}</p>
-          <p className="text-xs text-gray-400 mt-1">{formatCurrency(deductions.netAnnual / 12)}/mo</p>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+            <p className="text-sm text-gray-500 dark:text-gray-400">Gross Annual</p>
+            <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{formatCurrency(deductions.totalGrossAnnual)}</p>
+          </div>
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+            <p className="text-sm text-gray-500 dark:text-gray-400">Net After Deductions</p>
+            <p className="text-2xl font-bold text-emerald-600 mt-1">{formatCurrency(deductions.netAnnual)}</p>
+            <p className="text-xs text-gray-400 mt-1">{formatCurrency(deductions.netAnnual / 12)}/mo</p>
+          </div>
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+            <p className="text-sm text-gray-500 dark:text-gray-400">Disposable Income</p>
+            <p className={`text-2xl font-bold mt-1 ${netAfterAll >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{formatCurrency(netAfterAll)}</p>
+            <p className="text-xs text-gray-400 mt-1">{formatCurrency(netAfterAll / 12)}/mo (after all expenses)</p>
+          </div>
         </div>
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Disposable Income</p>
-          <p className={`text-2xl font-bold mt-1 ${netAfterAll >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{formatCurrency(netAfterAll)}</p>
-          <p className="text-xs text-gray-400 mt-1">{formatCurrency(netAfterAll / 12)}/mo (after all expenses)</p>
-        </div>
-      </div>
+      )}
 
       {/* Charts */}
-      {deductions.totalGrossAnnual > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {isSimpleMode ? (
+        expenses.length > 0 && (
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Deduction Breakdown (Annual)</h3>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Expense Breakdown (Monthly)</h3>
             <ResponsiveContainer width="100%" height={280}>
               <PieChart>
-                <Pie data={deductionPieData} cx="50%" cy="50%" innerRadius={50} outerRadius={100} paddingAngle={3} dataKey="value">
-                  {deductionPieData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                <Pie
+                  data={expenses.map((e) => ({ name: e.name, value: toMonthly(e.amount, e.frequency) }))}
+                  cx="50%" cy="50%" innerRadius={50} outerRadius={100} paddingAngle={3} dataKey="value">
+                  {expenses.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                 </Pie>
                 <Tooltip formatter={(v) => formatCurrency(v)} />
                 <Legend />
               </PieChart>
             </ResponsiveContainer>
           </div>
-          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Income Waterfall (Annual)</h3>
-            <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={summaryBarData}>
-                <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
-                <Tooltip formatter={(v) => formatCurrency(Math.abs(v))} />
-                <Bar dataKey="amount" radius={[6, 6, 0, 0]}>
-                  {summaryBarData.map((entry, i) => (
-                    <Cell key={i} fill={entry.amount >= 0 ? '#10b981' : '#ef4444'} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+        )
+      ) : (
+        deductions.totalGrossAnnual > 0 && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Deduction Breakdown (Annual)</h3>
+              <ResponsiveContainer width="100%" height={280}>
+                <PieChart>
+                  <Pie data={deductionPieData} cx="50%" cy="50%" innerRadius={50} outerRadius={100} paddingAngle={3} dataKey="value">
+                    {deductionPieData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip formatter={(v) => formatCurrency(v)} />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Income Waterfall (Annual)</h3>
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={summaryBarData}>
+                  <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+                  <Tooltip formatter={(v) => formatCurrency(Math.abs(v))} />
+                  <Bar dataKey="amount" radius={[6, 6, 0, 0]}>
+                    {summaryBarData.map((entry, i) => (
+                      <Cell key={i} fill={entry.amount >= 0 ? '#10b981' : '#ef4444'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </div>
-        </div>
+        )
       )}
 
       {/* Disclaimer */}
-      <p className="text-xs text-gray-400 dark:text-gray-500 text-center italic">
-        Tax calculations are estimates for informational purposes only. This is not tax advice. Consult a tax professional for accurate calculations.
-      </p>
+      {!isSimpleMode && (
+        <p className="text-xs text-gray-400 dark:text-gray-500 text-center italic">
+          Tax calculations are estimates for informational purposes only. This is not tax advice. Consult a tax professional for accurate calculations.
+        </p>
+      )}
 
       {/* Modals */}
       {showModal && (
