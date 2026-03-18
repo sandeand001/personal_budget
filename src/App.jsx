@@ -7,6 +7,8 @@ import Income from './pages/Income';
 import Expenses from './pages/Expenses';
 import Budget from './pages/Budget';
 import Vacations from './pages/Vacations';
+import Debt from './pages/Debt';
+import HouseholdSettings from './pages/HouseholdSettings';
 
 export default function App() {
   return (
@@ -24,6 +26,8 @@ export default function App() {
         <Route path="/expenses" element={<Expenses />} />
         <Route path="/budget" element={<Budget />} />
         <Route path="/vacations" element={<Vacations />} />
+        <Route path="/debt" element={<Debt />} />
+        <Route path="/settings" element={<HouseholdSettings />} />
       </Route>
     </Routes>
   );

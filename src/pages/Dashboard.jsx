@@ -1,15 +1,19 @@
+import { useMemo } from 'react';
 import {
-  LayoutDashboard,
   DollarSign,
-  Receipt,
-  Wallet,
-  Plane,
   TrendingUp,
-  TrendingDown,
+  Wallet,
+  Receipt,
+  Plane,
+  Landmark,
   AlertCircle,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useIncomeStreams, useTaxProfile, useRetirement, useExpenses, useBudgetProfiles, useVacations, useDebts } from '../hooks/useFirestore';
+import { toAnnual, toMonthly, formatCurrency, getPeriodsPerYear } from '../lib/financial';
+import { calculateAllDeductions } from '../lib/taxEngine';
+import { cn } from '../lib/utils';
 
 function SummaryCard({ title, value, subtitle, icon: Icon, color, to }) {
   return (
@@ -37,6 +41,59 @@ export default function Dashboard() {
   const { user } = useAuth();
   const firstName = user?.displayName?.split(' ')[0] || 'there';
 
+  const { streams } = useIncomeStreams();
+  const { profile: taxProfile } = useTaxProfile();
+  const { retirement } = useRetirement();
+  const { expenses: variableExpenses } = useExpenses();
+  const { profiles: budgetProfiles } = useBudgetProfiles();
+  const { vacations } = useVacations();
+  const { debts } = useDebts();
+
+  // Income totals
+  const totalGrossMonthly = useMemo(
+    () => streams.reduce((s, i) => s + toMonthly(i.amount, i.frequency), 0),
+    [streams]
+  );
+  const totalGrossAnnual = totalGrossMonthly * 12;
+
+  // Tax deductions
+  const deductions = useMemo(() => {
+    const preparedStreams = streams.map((s) => ({
+      ...s,
+      periodsPerYear: getPeriodsPerYear(s.frequency),
+    }));
+    return calculateAllDeductions({
+      incomeStreams: preparedStreams,
+      taxProfile: taxProfile || {},
+      retirement: retirement || {},
+    });
+  }, [streams, taxProfile, retirement]);
+
+  const variableAnnual = useMemo(
+    () => variableExpenses.reduce((s, e) => s + toAnnual(e.amount, e.frequency), 0),
+    [variableExpenses]
+  );
+
+  const netAnnual = deductions.netAnnual - variableAnnual;
+
+  // Refund / owed
+  const refundOwed = deductions.refundOrOwed || 0;
+
+  // Budget remaining (sum across all profiles — not perfect without transactions but shows budget total)
+  const totalBudgetMonthly = useMemo(
+    () => budgetProfiles.reduce((s, p) => s + (p.totalBudget || 0), 0),
+    [budgetProfiles]
+  );
+
+  // Debt total
+  const totalDebt = useMemo(
+    () => debts.reduce((s, d) => s + (d.balance || 0), 0),
+    [debts]
+  );
+
+  // Vacation with highest savings progress
+  const nextVacation = vacations.length > 0 ? vacations[0] : null;
+
   return (
     <div className="space-y-6">
       {/* Welcome */}
@@ -49,83 +106,134 @@ export default function Dashboard() {
         </p>
       </div>
 
-      {/* Quick Start - collapsible */}
-      <details className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl p-4">
-        <summary className="cursor-pointer text-sm font-medium text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
-          <AlertCircle className="w-4 h-4" />
-          Getting started? Click here for a quick guide
-        </summary>
-        <div className="mt-3 text-sm text-emerald-700 dark:text-emerald-400 space-y-2">
-          <p>1. <strong>Income</strong> — Add your income streams (salary, side jobs, VA disability, etc.)</p>
-          <p>2. <strong>Expenses</strong> — Set up your tax profile and add recurring expenses</p>
-          <p>3. <strong>Budget</strong> — Create a spending budget and track your purchases</p>
-          <p>4. <strong>Vacations</strong> — Plan trips, track costs, and set savings goals</p>
-          <p>This dashboard will automatically populate as you add data!</p>
-        </div>
-      </details>
+      {/* Quick Start */}
+      {streams.length === 0 && (
+        <details className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl p-4" open>
+          <summary className="cursor-pointer text-sm font-medium text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
+            <AlertCircle className="w-4 h-4" />
+            Getting started? Click here for a quick guide
+          </summary>
+          <div className="mt-3 text-sm text-emerald-700 dark:text-emerald-400 space-y-2">
+            <p>1. <strong>Income</strong> — Add your income streams (salary, side jobs, VA disability, etc.)</p>
+            <p>2. <strong>Expenses</strong> — Set up your tax profile and add recurring expenses</p>
+            <p>3. <strong>Budget</strong> — Create a spending budget and track your purchases</p>
+            <p>4. <strong>Vacations</strong> — Plan trips, track costs, and set savings goals</p>
+            <p>5. <strong>Debt</strong> — Track loans and plan repayment strategies</p>
+            <p>6. <strong>Settings</strong> — Invite household members to share your data</p>
+          </div>
+        </details>
+      )}
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <SummaryCard
-          title="Total Income"
-          value="$0.00"
-          subtitle="No income streams yet"
+          title="Gross Income"
+          value={formatCurrency(totalGrossMonthly)}
+          subtitle={streams.length > 0 ? `${streams.length} stream${streams.length !== 1 ? 's' : ''} · ${formatCurrency(totalGrossAnnual)}/yr` : 'No income streams yet'}
           icon={DollarSign}
           color="bg-emerald-500"
           to="/income"
         />
         <SummaryCard
           title="Net Income"
-          value="$0.00"
-          subtitle="After deductions"
+          value={formatCurrency(netAnnual / 12)}
+          subtitle={`After taxes, 401k & expenses · ${formatCurrency(netAnnual)}/yr`}
           icon={TrendingUp}
           color="bg-blue-500"
           to="/expenses"
         />
         <SummaryCard
-          title="Budget Remaining"
-          value="$0.00"
-          subtitle="No budget set"
+          title={refundOwed >= 0 ? 'Est. Tax Refund' : 'Est. Tax Owed'}
+          value={formatCurrency(Math.abs(refundOwed))}
+          subtitle={refundOwed >= 0 ? 'Projected refund' : 'Projected amount owed'}
+          icon={Receipt}
+          color={refundOwed >= 0 ? 'bg-emerald-600' : 'bg-red-500'}
+          to="/expenses"
+        />
+        <SummaryCard
+          title="Budget Total"
+          value={formatCurrency(totalBudgetMonthly)}
+          subtitle={budgetProfiles.length > 0 ? `${budgetProfiles.length} profile${budgetProfiles.length !== 1 ? 's' : ''}` : 'No budget set'}
           icon={Wallet}
           color="bg-purple-500"
           to="/budget"
         />
         <SummaryCard
-          title="Est. Tax Refund"
-          value="$0.00"
-          subtitle="Set up tax profile"
-          icon={Receipt}
-          color="bg-amber-500"
-          to="/expenses"
+          title="Total Debt"
+          value={formatCurrency(totalDebt)}
+          subtitle={debts.length > 0 ? `${debts.length} account${debts.length !== 1 ? 's' : ''}` : 'No debts tracked'}
+          icon={Landmark}
+          color="bg-red-500"
+          to="/debt"
+        />
+        <SummaryCard
+          title="Vacations"
+          value={vacations.length.toString()}
+          subtitle={nextVacation ? `Next: ${nextVacation.name}` : 'No trips planned'}
+          icon={Plane}
+          color="bg-sky-500"
+          to="/vacations"
         />
       </div>
 
-      {/* Placeholder sections */}
+      {/* Quick Links Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Recent Activity */}
+        {/* Income Breakdown */}
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-            Recent Activity
-          </h2>
-          <div className="text-center py-8 text-gray-400 dark:text-gray-500">
-            <Receipt className="w-8 h-8 mx-auto mb-2 opacity-50" />
-            <p className="text-sm">No recent transactions</p>
-            <p className="text-xs mt-1">Start by adding income or budget entries</p>
-          </div>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Income Streams</h2>
+          {streams.length === 0 ? (
+            <div className="text-center py-6 text-gray-400 dark:text-gray-500">
+              <DollarSign className="w-8 h-8 mx-auto mb-2 opacity-50" />
+              <p className="text-sm">No income streams yet</p>
+              <Link to="/income" className="text-xs text-emerald-600 hover:underline mt-1 inline-block">Add your first income →</Link>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {streams.slice(0, 5).map((s) => (
+                <div key={s.id} className="flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <span className={cn('px-1.5 py-0.5 rounded text-[10px] font-bold uppercase',
+                      s.type === 'w2' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
+                    )}>{s.type}</span>
+                    <span className="text-sm text-gray-900 dark:text-white">{s.name}</span>
+                    {!s.isTaxable && <span className="text-[10px] bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-1.5 py-0.5 rounded">non-taxable</span>}
+                  </div>
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{formatCurrency(toMonthly(s.amount, s.frequency))}/mo</span>
+                </div>
+              ))}
+              {streams.length > 5 && (
+                <Link to="/income" className="block text-center text-xs text-emerald-600 hover:underline py-1">
+                  View all {streams.length} streams →
+                </Link>
+              )}
+            </div>
+          )}
         </div>
 
-        {/* Vacation Progress */}
+        {/* Debt Overview */}
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-            Vacation Goals
-          </h2>
-          <div className="text-center py-8 text-gray-400 dark:text-gray-500">
-            <Plane className="w-8 h-8 mx-auto mb-2 opacity-50" />
-            <p className="text-sm">No vacations planned</p>
-            <Link to="/vacations" className="text-xs text-emerald-600 hover:underline mt-1 inline-block">
-              Plan your first trip →
-            </Link>
-          </div>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Debt Overview</h2>
+          {debts.length === 0 ? (
+            <div className="text-center py-6 text-gray-400 dark:text-gray-500">
+              <Landmark className="w-8 h-8 mx-auto mb-2 opacity-50" />
+              <p className="text-sm">No debts tracked</p>
+              <Link to="/debt" className="text-xs text-emerald-600 hover:underline mt-1 inline-block">Add your first debt →</Link>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {debts.slice(0, 5).map((d) => (
+                <div key={d.id} className="flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                  <span className="text-sm text-gray-900 dark:text-white">{d.name}</span>
+                  <span className="text-sm font-medium text-red-600">{formatCurrency(d.balance)}</span>
+                </div>
+              ))}
+              {debts.length > 5 && (
+                <Link to="/debt" className="block text-center text-xs text-emerald-600 hover:underline py-1">
+                  View all {debts.length} debts →
+                </Link>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

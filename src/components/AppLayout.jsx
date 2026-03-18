@@ -7,6 +7,8 @@ import {
   Receipt,
   Wallet,
   Plane,
+  Landmark,
+  Settings,
   LogOut,
   Menu,
   X,
@@ -20,6 +22,8 @@ const navItems = [
   { to: '/expenses', label: 'Expenses', icon: Receipt },
   { to: '/budget', label: 'Budget', icon: Wallet },
   { to: '/vacations', label: 'Vacations', icon: Plane },
+  { to: '/debt', label: 'Debt', icon: Landmark },
+  { to: '/settings', label: 'Settings', icon: Settings },
 ];
 
 export default function AppLayout() {

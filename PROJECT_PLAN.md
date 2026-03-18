@@ -189,52 +189,115 @@ Plan, track, and save for vacations.
 
 ---
 
+### 6. Loan / Debt Repayment Page
+
+Track all debts being paid over time and visualize payoff progress.
+
+**Supported Debt Types:**
+- Student Loan
+- Mortgage
+- Auto Loan
+- Credit Card
+- Medical Debt
+- Personal Loan
+- Home Equity / HELOC
+- Other (custom)
+
+**Per Debt Entry:**
+- **Name** (e.g., "Chase Visa", "Federal Student Loan")
+- **Type** — select from list above
+- **Original balance** — total borrowed
+- **Current balance** — remaining amount owed
+- **Interest rate (APR %)**
+- **Minimum monthly payment**
+- **Extra monthly payment** (optional — for accelerated payoff)
+- **Due date** — day of month
+
+**Auto-Calculated:**
+- **Monthly payment total** (minimum + extra)
+- **Estimated payoff date** — based on balance, rate, and payments
+- **Total interest paid** over life of loan
+- **Total cost** (principal + interest)
+- **Months remaining**
+
+**Payoff Strategies (toggle between):**
+- **Avalanche** — pay minimums on all, extra toward highest interest rate first
+- **Snowball** — pay minimums on all, extra toward lowest balance first
+- Show estimated payoff timeline for each strategy
+
+**Totals:**
+- Total debt across all entries
+- Total monthly debt payments
+- Aggregate payoff timeline
+
+**Visualizations:**
+- **Progress bars** — per debt (paid vs. remaining)
+- **Pie chart** — debt breakdown by type
+- **Stacked area chart** — projected balance over time (payoff trajectory)
+- **Comparison chart** — avalanche vs. snowball strategy
+
+---
+
 ## Data Architecture (Firestore)
 
+All financial data is scoped to a **household**, not an individual user.
+Multiple users can share the same household data.
+
 ```
-users/
-  {userId}/
-    profile/
-      { name, email, settings }
+households/
+  {householdId}/
+    { name, ownerId, memberIds[], createdAt }
     income/
       {incomeId}/
         { name, type, amount, frequency, isTaxable, createdAt }
-    taxProfile/
-      { filingStatus, state, dependents, extraWithholding, w2_or_1099 }
-    deductions/
-      {deductionId}/
-        { name, amount, frequency, isAuto, category, createdAt }
-    retirement/
-      { traditional401kPct, roth401kPct, employerMatchPct }
+    settings/
+      taxProfile/
+        { filingStatus, state, dependents, extraWithholding }
+      retirement/
+        { traditional401kPct, roth401kPct, employerMatchPct }
+    expenses/
+      {expenseId}/
+        { name, amount, frequency, createdAt }
     budgetProfiles/
       {profileId}/
-        settings/
-          { name, totalBudget, period, categories[] }
+        { name, totalBudget, period, categories[], createdAt }
         transactions/
           {txnId}/
             { date, description, amount, category, createdAt }
-        carryOver/
-          { period, amount }
     vacations/
       {vacationId}/
-        { name, startDate, endDate, targetSavings }
+        { name, startDate, endDate, targetSavings, createdAt }
         expenses/
           {expenseId}/
             { name, estimatedCost, actualCost, isPaid, category }
         contributions/
           {contributionId}/
             { date, amount, note }
+    debts/
+      {debtId}/
+        { name, type, originalBalance, currentBalance, interestRate, minPayment, extraPayment, dueDate, createdAt }
+
+userProfiles/
+  {userId}/
+    { email, displayName, householdId }
+
+invitations/
+  {inviteId}/
+    { householdId, householdName, invitedEmail, invitedBy, status, createdAt }
 ```
 
 ---
 
-## Authentication Flow
+## Authentication & Household Flow
 
 1. **Landing state** — unauthenticated users see a login/signup page
 2. **Sign-in options** — Google sign-in (primary) + email/password
-3. **Post-login** — redirect to Dashboard
-4. **Data isolation** — Firestore security rules scope all reads/writes to authenticated user's own documents
-5. **Future** — shared household access (invite spouse to same "household" data)
+3. **First login** — auto-create a household for the user (they become the owner)
+4. **Household sharing** — owner can invite members by email
+5. **Invitation flow** — invited user sees pending invitations on login, can accept to join the household
+6. **Data sharing** — all household members see and edit the same data (income, expenses, budget, vacations, debt)
+7. **Household management** — settings page to view members, send invites, leave household
+8. **Data isolation** — Firestore security rules restrict access to household members only
 
 ---
 
@@ -244,7 +307,7 @@ users/
 ┌─────────────────────────────────┐
 │  Header / Nav Bar               │
 │  [Dashboard] [Income] [Expenses]│
-│  [Budget] [Vacations] [Profile] │
+│  [Budget] [Debt] [Vacations]    │
 └─────────────────────────────────┘
 ```
 
@@ -287,12 +350,18 @@ users/
 - [ ] Projected savings timeline
 - [ ] Vacation visualizations
 
-### Phase 5 — Dashboard
-- [ ] Aggregate data from all pages
+### Phase 5 — Loan / Debt Repayment
+- [ ] Debt CRUD (add/edit/delete loans)
+- [ ] Payoff calculator (date, total interest, total cost)
+- [ ] Avalanche vs. Snowball strategy comparison
+- [ ] Debt visualizations
+
+### Phase 6 — Dashboard
+- [ ] Aggregate data from all pages (including debt)
 - [ ] Summary cards, activity feed, alerts
 - [ ] Quick-start guide for new users
 
-### Phase 6 — Polish & Future
+### Phase 7 — Polish & Future
 - [ ] Animations and transitions
 - [ ] Offline support (Firestore persistence)
 - [ ] PWA manifest (installable on mobile)
