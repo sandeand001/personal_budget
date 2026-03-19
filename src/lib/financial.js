@@ -104,3 +104,39 @@ export function formatCurrencyShort(value) {
   }
   return formatCurrency(value);
 }
+
+/**
+ * Returns the correct per-paycheck amount for an income stream based on mode.
+ * Simple mode → takeHomeAmount, Detailed mode → grossAmount.
+ * Falls back to 0 if the field hasn't been entered yet.
+ */
+export function getStreamAmount(stream, isSimpleMode) {
+  if (isSimpleMode) {
+    return stream.takeHomeAmount ?? 0;
+  }
+  return stream.grossAmount ?? 0;
+}
+
+/**
+ * Get the bonus amount for a specific month.
+ * Returns the per-check bonus only if bonusEnabled and the month is in bonusMonths.
+ */
+export function getBonusForMonth(stream, month) {
+  if (!stream.bonusEnabled || !stream.bonusAmount) return 0;
+  const bonusMonths = stream.bonusMonths || [];
+  if (bonusMonths.length === 0) return 0;
+  return bonusMonths.includes(month) ? (parseFloat(stream.bonusAmount) || 0) : 0;
+}
+
+/**
+ * Get total income for a stream in a specific month (base + bonus if applicable).
+ */
+export function getStreamMonthTotal(stream, isSimpleMode, month, year) {
+  const base = getStreamAmount(stream, isSimpleMode);
+  const baseForMonth = getAmountForMonth(base, stream.frequency, stream.applicableMonths, month, year);
+  if (isSimpleMode) return baseForMonth;
+  // In detailed mode, add bonus for applicable months
+  const bonus = getBonusForMonth(stream, month);
+  const bonusForMonth = bonus > 0 ? getAmountForMonth(bonus, stream.frequency, stream.applicableMonths, month, year) : 0;
+  return baseForMonth + bonusForMonth;
+}

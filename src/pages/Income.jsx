@@ -2,7 +2,7 @@
 import { DollarSign, Plus, Trash2, Pencil, Info, X, Lock, Unlock, Check } from 'lucide-react';
 import { useIncomeStreams, useMonthlyIncomeLog } from '../hooks/useFirestore';
 import { useAppMode } from '../contexts/AppModeContext';
-import { FREQUENCIES, NEEDS_MONTH_PICKER, MONTH_NAMES, MONTH_NAMES_FULL, defaultMonthsForFrequency, getAmountForMonth, toAnnual, formatCurrency, formatCurrencyShort } from '../lib/financial';
+import { FREQUENCIES, NEEDS_MONTH_PICKER, MONTH_NAMES, MONTH_NAMES_FULL, defaultMonthsForFrequency, getAmountForMonth, toAnnual, formatCurrency, formatCurrencyShort, getStreamAmount, getStreamMonthTotal, getBonusForMonth } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 
@@ -18,16 +18,33 @@ function IncomeModal({ onClose, onSave, initial, isSimpleMode }) {
     const defaults = {
       name: '',
       type: 'w2',
-      amount: '',
+      takeHomeAmount: '',
+      grossAmount: '',
       frequency: 'monthly',
       isTaxable: true,
       applicableMonths: [],
+      bonusEnabled: false,
       bonusAmount: '',
+      bonusMonths: [],
       manualDeductions: { enabled: false },
     };
     if (!initial) return defaults;
-    return { ...defaults, ...initial };
+    // Migrate legacy 'amount' field
+    const migrated = { ...defaults, ...initial };
+    if (initial.amount !== undefined && !initial.takeHomeAmount && !initial.grossAmount) {
+      migrated.takeHomeAmount = initial.amount;
+      migrated.grossAmount = '';
+    }
+    // Migrate legacy bonusAmount to new model
+    if (initial.bonusAmount && !initial.bonusEnabled) {
+      migrated.bonusEnabled = true;
+      migrated.bonusAmount = initial.bonusAmount;
+      migrated.bonusMonths = initial.bonusMonths || [];
+    }
+    return migrated;
   });
+
+  const currentAmount = isSimpleMode ? form.takeHomeAmount : form.grossAmount;
 
   function handleFrequencyChange(freq) {
     const needsPicker = NEEDS_MONTH_PICKER.includes(freq);
@@ -48,12 +65,29 @@ function IncomeModal({ onClose, onSave, initial, isSimpleMode }) {
     });
   }
 
+  function toggleBonusMonth(m) {
+    const months = form.bonusMonths || [];
+    setForm({
+      ...form,
+      bonusMonths: months.includes(m)
+        ? months.filter((x) => x !== m)
+        : [...months, m].sort((a, b) => a - b),
+    });
+  }
+
   function handleSubmit(e) {
     e.preventDefault();
+    const parsed = parseFloat(currentAmount) || 0;
     const data = {
       ...form,
-      amount: parseFloat(form.amount) || 0,
-      bonusAmount: parseFloat(form.bonusAmount) || 0,
+      // Always store both fields — set only the active one
+      takeHomeAmount: isSimpleMode ? parsed : (parseFloat(form.takeHomeAmount) || 0),
+      grossAmount: isSimpleMode ? (parseFloat(form.grossAmount) || 0) : parsed,
+      // Keep legacy `amount` in sync for backwards compat with lock-in etc.
+      amount: parsed,
+      bonusEnabled: form.bonusEnabled || false,
+      bonusAmount: form.bonusEnabled ? (parseFloat(form.bonusAmount) || 0) : 0,
+      bonusMonths: form.bonusEnabled ? (form.bonusMonths || []) : [],
       manualDeductions: form.isTaxable && form.manualDeductions?.enabled
         ? { ...(form.manualDeductions || {}), enabled: true }
         : { enabled: false },
@@ -94,8 +128,8 @@ function IncomeModal({ onClose, onSave, initial, isSimpleMode }) {
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{isSimpleMode ? 'Take-Home Amount ($)' : 'Gross Amount ($)'}</label>
               <input
-                type="number" required min="0" step="0.01" value={form.amount}
-                onChange={(e) => setForm({ ...form, amount: e.target.value })}
+                type="number" required min="0" step="0.01" value={currentAmount}
+                onChange={(e) => setForm({ ...form, [isSimpleMode ? 'takeHomeAmount' : 'grossAmount']: e.target.value })}
                 placeholder="0.00"
                 className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
               />
@@ -152,15 +186,49 @@ function IncomeModal({ onClose, onSave, initial, isSimpleMode }) {
           )}
           {/* Bonus */}
           {!isSimpleMode && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Bonus Amount ($) <span className="text-gray-400 font-normal">— optional</span></label>
-              <input
-                type="number" min="0" step="0.01" value={form.bonusAmount}
-                onChange={(e) => setForm({ ...form, bonusAmount: e.target.value })}
-                placeholder="0.00 — per paycheck bonus"
-                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
-              />
-              <p className="text-xs text-gray-400 mt-1">If you get a bonus on the same pay stub, enter the per-paycheck bonus amount. Tax is calculated on combined pay + bonus.</p>
+            <div className="border border-gray-200 dark:border-gray-600 rounded-lg p-4 space-y-3">
+              <div className="flex items-center gap-3">
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox" checked={form.bonusEnabled || false}
+                    onChange={(e) => setForm({ ...form, bonusEnabled: e.target.checked })}
+                    className="sr-only peer" />
+                  <div className="w-9 h-5 bg-gray-300 peer-checked:bg-amber-500 rounded-full peer-focus:ring-2 peer-focus:ring-amber-300 transition after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
+                </label>
+                <div>
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Includes bonuses</span>
+                  <p className="text-xs text-gray-400">Bonus is added to your regular paycheck in selected months</p>
+                </div>
+              </div>
+              {form.bonusEnabled && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Bonus Amount Per Check ($)</label>
+                    <input
+                      type="number" min="0" step="0.01" value={form.bonusAmount}
+                      onChange={(e) => setForm({ ...form, bonusAmount: e.target.value })}
+                      placeholder="0.00"
+                      className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-amber-500 outline-none text-sm"
+                    />
+                    <p className="text-xs text-gray-400 mt-1">Extra amount added to your regular check during bonus months</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Bonus Months</label>
+                    <div className="grid grid-cols-4 gap-1.5">
+                      {MONTH_NAMES.map((name, i) => {
+                        const month = i + 1;
+                        const selected = (form.bonusMonths || []).includes(month);
+                        return (
+                          <button key={month} type="button" onClick={() => toggleBonusMonth(month)}
+                            className={`px-2 py-1.5 rounded-lg text-xs font-medium transition ${selected ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400 ring-1 ring-amber-300 dark:ring-amber-700' : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'}`}>
+                            {name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1">Select months when you expect bonus pay on your check</p>
+                  </div>
+                </>
+              )}
             </div>
           )}
           <div className="flex gap-3 pt-2">
@@ -196,7 +264,7 @@ function ConfirmDelete({ name, onClose, onConfirm }) {
 
 // ─── Lock-In Modal ───
 
-function LockInModal({ streams, currentMonth, lockedData, onClose, onLock }) {
+function LockInModal({ streams, currentMonth, lockedData, onClose, onLock, isSimpleMode, actualAmounts }) {
   const [entries, setEntries] = useState(() => {
     if (lockedData?.entries) {
       return lockedData.entries;
@@ -204,8 +272,8 @@ function LockInModal({ streams, currentMonth, lockedData, onClose, onLock }) {
     return streams.map((s) => ({
       id: s.id,
       name: s.name,
-      estimated: getAmountForMonth(s.amount, s.frequency, s.applicableMonths, currentMonth),
-      actual: getAmountForMonth(s.amount, s.frequency, s.applicableMonths, currentMonth),
+      estimated: getStreamMonthTotal(s, isSimpleMode, currentMonth),
+      actual: actualAmounts[s.id] ?? getStreamMonthTotal(s, isSimpleMode, currentMonth),
     }));
   });
 
@@ -281,6 +349,7 @@ export default function Income() {
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [showLockModal, setShowLockModal] = useState(false);
+  const [actualAmounts, setActualAmounts] = useState({});
 
   const now = new Date();
   const currentMonth = now.getMonth() + 1; // 1-indexed
@@ -289,23 +358,32 @@ export default function Income() {
   const lockedData = logs[yearMonth];
   const isLocked = !!lockedData;
 
-  // This Month calculation — uses getAmountForMonth for each stream
+  // This Month calculation — uses mode-aware getStreamMonthTotal
   const thisMonthEstimated = useMemo(() =>
-    streams.reduce((sum, s) => sum + getAmountForMonth(s.amount, s.frequency, s.applicableMonths, currentMonth), 0),
-    [streams, currentMonth]
+    streams.reduce((sum, s) => sum + getStreamMonthTotal(s, isSimpleMode, currentMonth, currentYear), 0),
+    [streams, currentMonth, currentYear, isSimpleMode]
   );
-  const thisMonthActual = isLocked ? lockedData.total : thisMonthEstimated;
 
-  const totalAnnual = streams.reduce((sum, s) => sum + toAnnual(s.amount, s.frequency), 0);
-  const taxableAnnual = streams.filter((s) => s.isTaxable).reduce((sum, s) => sum + toAnnual(s.amount, s.frequency), 0);
+  const thisMonthActualTotal = useMemo(() => {
+    if (isLocked) return lockedData.total;
+    const hasActuals = Object.keys(actualAmounts).length > 0;
+    if (!hasActuals) return null;
+    return streams.reduce((sum, s) => {
+      const actual = actualAmounts[s.id];
+      return sum + (actual !== undefined ? actual : getStreamMonthTotal(s, isSimpleMode, currentMonth, currentYear));
+    }, 0);
+  }, [streams, currentMonth, currentYear, isSimpleMode, isLocked, lockedData, actualAmounts]);
+
+  const totalAnnual = streams.reduce((sum, s) => sum + toAnnual(getStreamAmount(s, isSimpleMode), s.frequency), 0);
+  const taxableAnnual = streams.filter((s) => s.isTaxable).reduce((sum, s) => sum + toAnnual(getStreamAmount(s, isSimpleMode), s.frequency), 0);
   const nonTaxableAnnual = totalAnnual - taxableAnnual;
 
-  const taxableThisMonth = streams.filter((s) => s.isTaxable).reduce((sum, s) => sum + getAmountForMonth(s.amount, s.frequency, s.applicableMonths, currentMonth), 0);
+  const taxableThisMonth = streams.filter((s) => s.isTaxable).reduce((sum, s) => sum + getStreamMonthTotal(s, isSimpleMode, currentMonth, currentYear), 0);
   const nonTaxableThisMonth = thisMonthEstimated - taxableThisMonth;
 
   const pieData = streams.map((s) => ({
     name: s.name,
-    value: getAmountForMonth(s.amount, s.frequency, s.applicableMonths, currentMonth),
+    value: getStreamMonthTotal(s, isSimpleMode, currentMonth, currentYear),
   }));
 
   const barData = [
@@ -358,10 +436,13 @@ export default function Income() {
               {isLocked ? <Lock className="w-4 h-4" /> : <DollarSign className="w-4 h-4" />}
               <h2 className="text-sm font-medium text-white/80">{MONTH_NAMES_FULL[currentMonth - 1]} {currentYear} Income</h2>
             </div>
-            <p className="text-3xl font-bold">{formatCurrency(thisMonthActual)}</p>
+            <p className="text-3xl font-bold">{formatCurrency(isLocked ? lockedData.total : thisMonthEstimated)}</p>
             <p className="text-sm text-white/70 mt-1">
-              {isLocked ? 'Locked in — actual amounts recorded' : 'Estimated from your income streams'}
+              {isLocked ? 'Locked in — actual amounts recorded' : 'Projected from your income streams'}
             </p>
+            {!isLocked && thisMonthActualTotal !== null && (
+              <p className="text-sm text-white/90 mt-1">Actual entered: {formatCurrency(thisMonthActualTotal)}</p>
+            )}
           </div>
           <div className="flex flex-col gap-2">
             {isLocked ? (
@@ -405,7 +486,7 @@ export default function Income() {
       {/* Summary Cards */}
       <div className={`grid grid-cols-1 ${isSimpleMode ? 'sm:grid-cols-2' : 'sm:grid-cols-3'} gap-4`}>
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-          <p className="text-sm text-gray-500 dark:text-gray-400">{isSimpleMode ? `${MONTH_NAMES_FULL[currentMonth - 1]} Take-Home` : `${MONTH_NAMES_FULL[currentMonth - 1]} Gross Income`}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{isSimpleMode ? `${MONTH_NAMES_FULL[currentMonth - 1]} Take-Home (Projected)` : `${MONTH_NAMES_FULL[currentMonth - 1]} Gross Income (Projected)`}</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{formatCurrency(thisMonthEstimated)}</p>
           <p className="text-xs text-gray-400 mt-1">{formatCurrency(totalAnnual)} / year</p>
         </div>
@@ -445,20 +526,27 @@ export default function Income() {
                   <tr>
                     <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Name</th>
                     {!isSimpleMode && <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Type</th>}
-                    <th className="text-right px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Amount</th>
+                    <th className="text-right px-4 py-3 font-medium text-gray-500 dark:text-gray-400">{isSimpleMode ? 'Take-Home' : 'Gross'}</th>
                     <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Frequency</th>
-                    <th className="text-right px-4 py-3 font-medium text-gray-500 dark:text-gray-400">This Month</th>
+                    <th className="text-right px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Projected This Mo</th>
+                    <th className="text-right px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Actual This Mo</th>
                     {!isSimpleMode && <th className="text-center px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Taxable</th>}
                     <th className="text-right px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                  {streams.map((s) => (
+                  {streams.map((s) => {
+                    const amt = getStreamAmount(s, isSimpleMode);
+                    const projected = getStreamMonthTotal(s, isSimpleMode, currentMonth, currentYear);
+                    return (
                     <tr key={s.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
                       <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">
                         {s.name}
-                        {!isSimpleMode && s.bonusAmount > 0 && (
+                        {!isSimpleMode && s.bonusEnabled && s.bonusAmount > 0 && (
                           <span className="ml-2 text-xs text-amber-600 dark:text-amber-400">+{formatCurrency(s.bonusAmount)} bonus</span>
+                        )}
+                        {amt === 0 && (
+                          <span className="ml-2 text-xs text-red-400">({isSimpleMode ? 'gross only' : 'take-home only'})</span>
                         )}
                       </td>
                       {!isSimpleMode && (
@@ -468,9 +556,32 @@ export default function Income() {
                           </span>
                         </td>
                       )}
-                      <td className="px-4 py-3 text-right text-gray-900 dark:text-white">{formatCurrency(s.amount)}</td>
+                      <td className="px-4 py-3 text-right text-gray-900 dark:text-white">{formatCurrency(amt)}</td>
                       <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{freqLabel(s.frequency)}</td>
-                      <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-white">{formatCurrency(getAmountForMonth(s.amount, s.frequency, s.applicableMonths, currentMonth))}</td>
+                      <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-white">{formatCurrency(projected)}</td>
+                      <td className="px-4 py-3 text-right">
+                        {isLocked ? (
+                          <span className="font-medium text-blue-600">{formatCurrency(lockedData.entries?.find(e => e.id === s.id)?.actual ?? projected)}</span>
+                        ) : (
+                          <input
+                            type="number" min="0" step="0.01"
+                            value={actualAmounts[s.id] ?? ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setActualAmounts(prev => {
+                                if (val === '') {
+                                  const next = { ...prev };
+                                  delete next[s.id];
+                                  return next;
+                                }
+                                return { ...prev, [s.id]: parseFloat(val) || 0 };
+                              });
+                            }}
+                            placeholder={formatCurrency(projected).replace('$', '')}
+                            className="w-28 px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm text-right focus:ring-2 focus:ring-emerald-500 outline-none"
+                          />
+                        )}
+                      </td>
                       {!isSimpleMode && (
                         <td className="px-4 py-3 text-center">
                           {s.isTaxable ? (
@@ -493,7 +604,8 @@ export default function Income() {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -535,7 +647,18 @@ export default function Income() {
       {showModal && (
         <IncomeModal
           isSimpleMode={isSimpleMode}
-          initial={editing ? { name: editing.name, type: editing.type, amount: editing.amount, frequency: editing.frequency, isTaxable: editing.isTaxable, applicableMonths: editing.applicableMonths || [], bonusAmount: editing.bonusAmount || '' } : null}
+          initial={editing ? {
+            name: editing.name, type: editing.type,
+            takeHomeAmount: editing.takeHomeAmount ?? editing.amount ?? '',
+            grossAmount: editing.grossAmount ?? '',
+            frequency: editing.frequency,
+            isTaxable: editing.isTaxable,
+            applicableMonths: editing.applicableMonths || [],
+            bonusEnabled: editing.bonusEnabled || false,
+            bonusAmount: editing.bonusAmount || '',
+            bonusMonths: editing.bonusMonths || [],
+            manualDeductions: editing.manualDeductions || { enabled: false },
+          } : null}
           onClose={() => { setShowModal(false); setEditing(null); }}
           onSave={handleSave}
         />
@@ -548,6 +671,8 @@ export default function Income() {
           streams={streams}
           currentMonth={currentMonth}
           lockedData={lockedData}
+          isSimpleMode={isSimpleMode}
+          actualAmounts={actualAmounts}
           onClose={() => setShowLockModal(false)}
           onLock={(entries, total) => { lockMonth(yearMonth, entries, total); setShowLockModal(false); }}
         />

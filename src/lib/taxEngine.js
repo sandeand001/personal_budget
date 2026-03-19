@@ -217,8 +217,10 @@ export function calculateAllDeductions({
   let totalTaxableAnnual = 0;
 
   for (const s of incomeStreams) {
-    const annual = s.amount * (s.periodsPerYear || 12);
-    const bonusAnnual = (s.bonusAmount || 0) * (s.bonusPeriodsPerYear || s.periodsPerYear || 12);
+    const baseAmount = s.grossAmount ?? s.amount ?? 0;
+    const annual = baseAmount * (s.periodsPerYear || 12);
+    const bonusPerCheck = s.bonusEnabled ? (s.bonusAmount || 0) : 0;
+    const bonusAnnual = bonusPerCheck * (s.bonusMonths?.length || 0);
     totalGrossAnnual += annual + bonusAnnual;
     if (s.isTaxable) {
       totalTaxableAnnual += annual + bonusAnnual;
@@ -302,8 +304,11 @@ export function calculateStreamDeductions(stream, retirement = {}, householdTaxP
     || (householdTaxProfile.manualDeductions?.enabled ? householdTaxProfile.manualDeductions : null);
 
   const periodsPerYear = stream.periodsPerYear || 12;
-  const baseAnnual = stream.amount * periodsPerYear;
-  const bonusAnnual = (stream.bonusAmount || 0) * (stream.bonusPeriodsPerYear || periodsPerYear);
+  const baseAmount = stream.grossAmount ?? stream.amount ?? 0;
+  const baseAnnual = baseAmount * periodsPerYear;
+  const bonusPerCheck = stream.bonusEnabled ? (stream.bonusAmount || 0) : 0;
+  const bonusChecksPerYear = stream.bonusMonths?.length || 0;
+  const bonusAnnual = bonusPerCheck * bonusChecksPerYear;
   const grossAnnual = baseAnnual + bonusAnnual;
 
   if (!stream.isTaxable) {

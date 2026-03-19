@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Receipt, Plus, Trash2, Pencil, Info, Calculator, X, Settings, ChevronDown, ChevronUp, Lock, Unlock, DollarSign, Banknote } from 'lucide-react';
 import { useIncomeStreams, useRetirement, useExpenses, useFixedExpenses, useMonthlyIncomeLog, useMonthlyExpenseLog, useCurrentBalance, useBudgetProfiles, useTaxProfile, useDebts, useLoanGroups } from '../hooks/useFirestore';
-import { FREQUENCIES, NEEDS_MONTH_PICKER, MONTH_NAMES, MONTH_NAMES_FULL, defaultMonthsForFrequency, getAmountForMonth, toAnnual, formatCurrency, formatCurrencyShort, getPeriodsPerYear } from '../lib/financial';
+import { FREQUENCIES, NEEDS_MONTH_PICKER, MONTH_NAMES, MONTH_NAMES_FULL, defaultMonthsForFrequency, getAmountForMonth, toAnnual, formatCurrency, formatCurrencyShort, getPeriodsPerYear, getStreamAmount, getStreamMonthTotal } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
 import { calculateAllStreamDeductions, FILING_STATUSES, STATES } from '../lib/taxEngine';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
@@ -846,14 +846,15 @@ export default function Expenses() {
   const lockedIncomeData = incomeLogs[yearMonth];
   const thisMonthIncome = lockedIncomeData
     ? lockedIncomeData.total
-    : streams.reduce((sum, s) => sum + getAmountForMonth(s.amount, s.frequency, s.applicableMonths, currentMonth), 0);
+    : streams.reduce((sum, s) => sum + getStreamMonthTotal(s, isSimpleMode, currentMonth), 0);
 
   // Budget profiles opted into spending money split
   const optedProfiles = budgetProfiles.filter((p) => p.includeInSpendingSplit !== false);
 
-  // Prepare income streams with periodsPerYear for tax engine
+  // Prepare income streams with periodsPerYear for tax engine (always use grossAmount)
   const preparedStreams = streams.map((s) => ({
     ...s,
+    amount: s.grossAmount ?? s.amount ?? 0,
     periodsPerYear: getPeriodsPerYear(s.frequency),
   }));
 

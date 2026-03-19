@@ -15,7 +15,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useAppMode } from '../contexts/AppModeContext';
 import { useIncomeStreams, useRetirement, useExpenses, useFixedExpenses, useBudgetProfiles, useVacations, useDebts, useLoanGroups, useTaxProfile } from '../hooks/useFirestore';
-import { FREQUENCIES, toAnnual, formatCurrency, getPeriodsPerYear, getAmountForMonth, MONTH_NAMES_FULL } from '../lib/financial';
+import { FREQUENCIES, toAnnual, formatCurrency, getPeriodsPerYear, getAmountForMonth, MONTH_NAMES_FULL, getStreamAmount, getStreamMonthTotal } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
 import { calculateAllStreamDeductions } from '../lib/taxEngine';
 import { cn } from '../lib/utils';
@@ -65,18 +65,19 @@ export default function Dashboard() {
 
   // Income totals — actual for this month
   const totalGrossThisMonth = useMemo(
-    () => streams.reduce((s, i) => s + getAmountForMonth(i.amount, i.frequency, i.applicableMonths, currentMonth, currentYear) + getAmountForMonth(i.bonusAmount || 0, i.frequency, i.applicableMonths, currentMonth, currentYear), 0),
-    [streams, currentMonth, currentYear]
+    () => streams.reduce((s, i) => s + getStreamMonthTotal(i, isSimpleMode, currentMonth, currentYear), 0),
+    [streams, currentMonth, currentYear, isSimpleMode]
   );
   const totalGrossAnnual = useMemo(
-    () => streams.reduce((s, i) => s + toAnnual(i.amount, i.frequency) + toAnnual(i.bonusAmount || 0, i.frequency), 0),
-    [streams]
+    () => streams.reduce((s, i) => s + toAnnual(getStreamAmount(i, isSimpleMode), i.frequency), 0),
+    [streams, isSimpleMode]
   );
 
   // Tax deductions (per-stream)
   const deductions = useMemo(() => {
     const preparedStreams = streams.map((s) => ({
       ...s,
+      amount: s.grossAmount ?? s.amount ?? 0,
       periodsPerYear: getPeriodsPerYear(s.frequency),
     }));
     const result = calculateAllStreamDeductions(preparedStreams, retirement || {}, taxProfile || {});
@@ -310,7 +311,7 @@ export default function Dashboard() {
                     <span className="text-sm text-gray-900 dark:text-white">{s.name}</span>
                     {!isSimpleMode && !s.isTaxable && <span className="text-[10px] bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-1.5 py-0.5 rounded">non-taxable</span>}
                   </div>
-                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{formatCurrency(s.amount)}{freqLabel(s.frequency)}</span>
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{formatCurrency(getStreamAmount(s, isSimpleMode))}{freqLabel(s.frequency)}</span>
                 </div>
               ))}
               {streams.length > 5 && (

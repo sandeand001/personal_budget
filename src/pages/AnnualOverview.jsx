@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { CalendarRange, Lock, Calendar } from 'lucide-react';
 import { useIncomeStreams, useExpenses, useFixedExpenses, useMonthlyIncomeLog } from '../hooks/useFirestore';
-import { FREQUENCIES, MONTH_NAMES, MONTH_NAMES_FULL, getAmountForMonth, formatCurrency, formatCurrencyShort } from '../lib/financial';
+import { FREQUENCIES, MONTH_NAMES, MONTH_NAMES_FULL, getAmountForMonth, formatCurrency, formatCurrencyShort, getStreamAmount, getStreamMonthTotal } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
 import { useAppMode } from '../contexts/AppModeContext';
 import { cn } from '../lib/utils';
@@ -27,7 +27,7 @@ export default function AnnualOverview() {
       const income = locked
         ? locked.total
         : streams.reduce(
-            (sum, s) => sum + getAmountForMonth(s.amount, s.frequency, s.applicableMonths, month),
+            (sum, s) => sum + getStreamMonthTotal(s, isSimpleMode, month),
             0
           );
       const fixedExp = fixedExpensesList.reduce(
@@ -164,7 +164,7 @@ export default function AnnualOverview() {
             {irregularIncome.map((s) => (
               <div key={s.id} className="flex justify-between">
                 <span>+ {s.name} ({FREQUENCIES.find((f) => f.value === s.frequency)?.label})</span>
-                <span>{formatCurrency(s.amount)} in {(s.applicableMonths || []).map((m) => MONTH_NAMES[m - 1]).join(', ')}</span>
+                <span>{formatCurrency(getStreamAmount(s, isSimpleMode))} in {(s.applicableMonths || []).map((m) => MONTH_NAMES[m - 1]).join(', ')}</span>
               </div>
             ))}
             {irregularFixed.map((e) => (
