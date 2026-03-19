@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Receipt, Plus, Trash2, Pencil, Info, Calculator, X, Settings, ChevronDown, ChevronUp, Lock, Unlock, DollarSign, Banknote } from 'lucide-react';
-import { useIncomeStreams, useRetirement, useExpenses, useFixedExpenses, useMonthlyIncomeLog, useMonthlyExpenseLog, useCurrentBalance, useBudgetProfiles, useTaxProfile } from '../hooks/useFirestore';
+import { useIncomeStreams, useRetirement, useExpenses, useFixedExpenses, useMonthlyIncomeLog, useMonthlyExpenseLog, useCurrentBalance, useBudgetProfiles, useTaxProfile, useDebts, useLoanGroups } from '../hooks/useFirestore';
 import { FREQUENCIES, NEEDS_MONTH_PICKER, MONTH_NAMES, MONTH_NAMES_FULL, defaultMonthsForFrequency, getAmountForMonth, toAnnual, toMonthly, formatCurrency, formatCurrencyShort, getPeriodsPerYear } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
 import { calculateAllStreamDeductions, FILING_STATUSES, STATES } from '../lib/taxEngine';
@@ -249,12 +249,14 @@ function RetirementForm({ retirement, onSave }) {
 
 // ─── Expense Modal (shared for fixed & variable) ───
 
-function ExpenseModal({ onClose, onSave, initial, title }) {
+function ExpenseModal({ onClose, onSave, initial, title, debts = [], loanGroups = [] }) {
   const [form, setForm] = useState(initial || {
     name: '',
     amount: '',
     frequency: 'monthly',
     applicableMonths: [],
+    linkedDebtId: '',
+    linkedDebtType: '',
   });
 
   function handleFrequencyChange(freq) {
@@ -329,6 +331,27 @@ function ExpenseModal({ onClose, onSave, initial, title }) {
                   );
                 })}
               </div>
+            </div>
+          )}
+          {/* Link to Debt */}
+          {(debts.length > 0 || loanGroups.length > 0) && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Link to Debt (optional)</label>
+              <select value={form.linkedDebtId ? `${form.linkedDebtType}:${form.linkedDebtId}` : ''}
+                onChange={(e) => {
+                  if (!e.target.value) {
+                    setForm({ ...form, linkedDebtId: '', linkedDebtType: '' });
+                  } else {
+                    const [type, id] = e.target.value.split(':');
+                    setForm({ ...form, linkedDebtId: id, linkedDebtType: type });
+                  }
+                }}
+                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm">
+                <option value="">None</option>
+                {debts.map((d) => <option key={d.id} value={`debt:${d.id}`}>{d.name}</option>)}
+                {loanGroups.map((g) => <option key={g.id} value={`loanGroup:${g.id}`}>{g.name} (Group)</option>)}
+              </select>
+              <p className="text-xs text-gray-400 mt-1">When linked, lock-in on the Debt page will apply this payment to the loan balance.</p>
             </div>
           )}
           <div className="flex gap-3 pt-2">
@@ -564,6 +587,8 @@ export default function Expenses() {
   const { profile: taxProfile, saveTaxProfile } = useTaxProfile();
   const { expenses, addExpense, updateExpense, removeExpense } = useExpenses();
   const { expenses: fixedExpensesList, addExpense: addFixed, updateExpense: updateFixed, removeExpense: removeFixed } = useFixedExpenses();
+  const { debts } = useDebts();
+  const { loanGroups } = useLoanGroups();
   const { logs: incomeLogs } = useMonthlyIncomeLog();
   const { logs: expenseLogs, lockMonth: lockExpenseMonth, unlockMonth: unlockExpenseMonth } = useMonthlyExpenseLog();
   const { balance: currentBalance, saveBalance } = useCurrentBalance();
@@ -993,9 +1018,18 @@ export default function Expenses() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                {fixedExpensesList.map((e) => (
+                {fixedExpensesList.map((e) => {
+                  const linkedName = e.linkedDebtId
+                    ? (e.linkedDebtType === 'loanGroup'
+                      ? loanGroups.find((g) => g.id === e.linkedDebtId)?.name
+                      : debts.find((d) => d.id === e.linkedDebtId)?.name) || null
+                    : null;
+                  return (
                   <tr key={e.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{e.name}</td>
+                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">
+                      {e.name}
+                      {linkedName && <span className="ml-2 text-xs text-blue-500 dark:text-blue-400">→ {linkedName}</span>}
+                    </td>
                     <td className="px-4 py-3 text-right text-gray-900 dark:text-white">{formatCurrency(e.amount)}</td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{freqLabel(e.frequency)}</td>
                     <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-white">{formatCurrency(getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth))}</td>
@@ -1012,7 +1046,8 @@ export default function Expenses() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
               <tfoot>
                 <tr className="bg-gray-50 dark:bg-gray-700/50 font-semibold">
@@ -1058,9 +1093,18 @@ export default function Expenses() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                {expenses.map((e) => (
+                {expenses.map((e) => {
+                  const linkedName = e.linkedDebtId
+                    ? (e.linkedDebtType === 'loanGroup'
+                      ? loanGroups.find((g) => g.id === e.linkedDebtId)?.name
+                      : debts.find((d) => d.id === e.linkedDebtId)?.name) || null
+                    : null;
+                  return (
                   <tr key={e.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{e.name}</td>
+                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">
+                      {e.name}
+                      {linkedName && <span className="ml-2 text-xs text-blue-500 dark:text-blue-400">→ {linkedName}</span>}
+                    </td>
                     <td className="px-4 py-3 text-right text-gray-900 dark:text-white">{formatCurrency(e.amount)}</td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{freqLabel(e.frequency)}</td>
                     <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-white">{formatCurrency(getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth))}</td>
@@ -1077,7 +1121,8 @@ export default function Expenses() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
               <tfoot>
                 <tr className="bg-gray-50 dark:bg-gray-700/50 font-semibold">
@@ -1242,17 +1287,21 @@ export default function Expenses() {
       {showModal && (
         <ExpenseModal
           title={editing ? 'Edit Variable Expense' : 'Add Variable Expense'}
-          initial={editing ? { name: editing.name, amount: editing.amount, frequency: editing.frequency, applicableMonths: editing.applicableMonths || [] } : null}
+          initial={editing ? { name: editing.name, amount: editing.amount, frequency: editing.frequency, applicableMonths: editing.applicableMonths || [], linkedDebtId: editing.linkedDebtId || '', linkedDebtType: editing.linkedDebtType || '' } : null}
           onClose={() => { setShowModal(false); setEditing(null); }}
           onSave={handleSaveExpense}
+          debts={debts}
+          loanGroups={loanGroups}
         />
       )}
       {showFixedModal && (
         <ExpenseModal
           title={editingFixed ? 'Edit Fixed Expense' : 'Add Fixed Expense'}
-          initial={editingFixed ? { name: editingFixed.name, amount: editingFixed.amount, frequency: editingFixed.frequency, applicableMonths: editingFixed.applicableMonths || [] } : null}
+          initial={editingFixed ? { name: editingFixed.name, amount: editingFixed.amount, frequency: editingFixed.frequency, applicableMonths: editingFixed.applicableMonths || [], linkedDebtId: editingFixed.linkedDebtId || '', linkedDebtType: editingFixed.linkedDebtType || '' } : null}
           onClose={() => { setShowFixedModal(false); setEditingFixed(null); }}
           onSave={handleSaveFixed}
+          debts={debts}
+          loanGroups={loanGroups}
         />
       )}
       {deleting && (

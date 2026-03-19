@@ -511,6 +511,42 @@ export function useMonthlyExpenseLog() {
   return { logs, loading, lockMonth, unlockMonth };
 }
 
+// ─── Monthly Debt Log ───
+// Stores locked-in debt payments per month (keyed by "YYYY-MM")
+
+export function useMonthlyDebtLog() {
+  const { householdId } = useHousehold();
+  const [logs, setLogs] = useState({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!householdId) return;
+    const unsub = onSnapshot(
+      collection(db, 'households', householdId, 'monthlyDebtLogs'),
+      (snap) => {
+        const data = {};
+        snap.docs.forEach((d) => { data[d.id] = d.data(); });
+        setLogs(data);
+        setLoading(false);
+      }
+    );
+    return unsub;
+  }, [householdId]);
+
+  async function lockMonth(yearMonth, payload) {
+    return setDoc(
+      doc(db, 'households', householdId, 'monthlyDebtLogs', yearMonth),
+      { ...payload, lockedAt: serverTimestamp() }
+    );
+  }
+
+  async function unlockMonth(yearMonth) {
+    return deleteDoc(doc(db, 'households', householdId, 'monthlyDebtLogs', yearMonth));
+  }
+
+  return { logs, loading, lockMonth, unlockMonth };
+}
+
 // ─── Current Balance (optional override) ───
 
 export function useCurrentBalance() {
