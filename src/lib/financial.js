@@ -108,11 +108,12 @@ export function formatCurrencyShort(value) {
 /**
  * Returns the correct per-paycheck amount for an income stream based on mode.
  * Simple mode → takeHomeAmount, Detailed mode → grossAmount.
+ * Falls back to legacy 'amount' field for simple mode (pre-migration data).
  * Falls back to 0 if the field hasn't been entered yet.
  */
 export function getStreamAmount(stream, isSimpleMode) {
   if (isSimpleMode) {
-    return stream.takeHomeAmount ?? 0;
+    return stream.takeHomeAmount ?? stream.amount ?? 0;
   }
   return stream.grossAmount ?? 0;
 }
