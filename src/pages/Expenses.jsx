@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Receipt, Plus, Trash2, Pencil, Info, Calculator, X, Settings, ChevronDown, ChevronUp, Lock, Unlock, DollarSign, Banknote } from 'lucide-react';
 import { useIncomeStreams, useRetirement, useExpenses, useFixedExpenses, useMonthlyIncomeLog, useMonthlyExpenseLog, useCurrentBalance, useBudgetProfiles, useTaxProfile, useDebts, useLoanGroups } from '../hooks/useFirestore';
-import { FREQUENCIES, NEEDS_MONTH_PICKER, MONTH_NAMES, MONTH_NAMES_FULL, defaultMonthsForFrequency, getAmountForMonth, toAnnual, toMonthly, formatCurrency, formatCurrencyShort, getPeriodsPerYear } from '../lib/financial';
+import { FREQUENCIES, NEEDS_MONTH_PICKER, MONTH_NAMES, MONTH_NAMES_FULL, defaultMonthsForFrequency, getAmountForMonth, toAnnual, formatCurrency, formatCurrencyShort, getPeriodsPerYear } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
 import { calculateAllStreamDeductions, FILING_STATUSES, STATES } from '../lib/taxEngine';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
@@ -646,17 +646,14 @@ export default function Expenses() {
     };
   }, [streamDeductions]);
 
-  // Fixed expenses totals (monthly)
-  const totalFixedMonthly = fixedExpensesList.reduce((sum, e) => sum + toMonthly(e.amount, e.frequency), 0);
+  // Fixed expenses totals
   const totalFixedThisMonth = fixedExpensesList.reduce((sum, e) => sum + getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth), 0);
 
-  // Variable expenses totals (monthly)
-  const totalVariableMonthly = expenses.reduce((sum, e) => sum + toMonthly(e.amount, e.frequency), 0);
-  const totalVariableAnnual = expenses.reduce((sum, e) => sum + toAnnual(e.amount, e.frequency), 0);
+  // Variable expenses totals
   const totalVariableThisMonth = expenses.reduce((sum, e) => sum + getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth), 0);
+  const totalVariableAnnual = expenses.reduce((sum, e) => sum + toAnnual(e.amount, e.frequency), 0);
 
   const totalFixedAnnual = fixedExpensesList.reduce((sum, e) => sum + toAnnual(e.amount, e.frequency), 0);
-  const totalAllExpensesMonthly = totalFixedMonthly + totalVariableMonthly;
   const totalAllExpensesThisMonth = totalFixedThisMonth + totalVariableThisMonth;
 
   const netAfterAll = deductions.netAnnual - totalVariableAnnual - totalFixedAnnual;
@@ -1180,22 +1177,21 @@ export default function Expenses() {
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
             <p className="text-sm text-gray-500 dark:text-gray-400">Fixed Expenses</p>
             <p className="text-2xl font-bold text-red-500 mt-1">{formatCurrency(totalFixedAnnual)}</p>
-            <p className="text-xs text-gray-400 mt-1">{formatCurrency(totalFixedMonthly)}/mo</p>
+            <p className="text-xs text-gray-400 mt-1">{formatCurrency(totalFixedThisMonth)} this month</p>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
             <p className="text-sm text-gray-500 dark:text-gray-400">Variable Expenses</p>
             <p className="text-2xl font-bold text-red-500 mt-1">{formatCurrency(totalVariableAnnual)}</p>
-            <p className="text-xs text-gray-400 mt-1">{formatCurrency(totalVariableMonthly)}/mo</p>
+            <p className="text-xs text-gray-400 mt-1">{formatCurrency(totalVariableThisMonth)} this month</p>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
             <p className="text-sm text-gray-500 dark:text-gray-400">Disposable Income</p>
             {(() => {
-              const totalTakeHomeMonthly = streams.reduce((sum, s) => sum + toMonthly(s.amount, s.frequency), 0);
-              const disposable = totalTakeHomeMonthly - totalAllExpensesMonthly;
+              const disposable = thisMonthIncome - totalAllExpensesThisMonth;
               return (
                 <>
                   <p className={`text-2xl font-bold mt-1 ${disposable >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{formatCurrency(disposable)}</p>
-                  <p className="text-xs text-gray-400 mt-1">Take-home pay minus all expenses (monthly)</p>
+                  <p className="text-xs text-gray-400 mt-1">Take-home pay minus all expenses ({MONTH_NAMES_FULL[currentMonth - 1]})</p>
                 </>
               );
             })()}
@@ -1210,12 +1206,12 @@ export default function Expenses() {
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
             <p className="text-sm text-gray-500 dark:text-gray-400">Net After Deductions</p>
             <p className="text-2xl font-bold text-emerald-600 mt-1">{formatCurrency(deductions.netAnnual)}</p>
-            <p className="text-xs text-gray-400 mt-1">{formatCurrency(deductions.netAnnual / 12)}/mo</p>
+            <p className="text-xs text-gray-400 mt-1">avg {formatCurrency(deductions.netAnnual / 12)}/mo</p>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
             <p className="text-sm text-gray-500 dark:text-gray-400">Disposable Income</p>
             <p className={`text-2xl font-bold mt-1 ${netAfterAll >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{formatCurrency(netAfterAll)}</p>
-            <p className="text-xs text-gray-400 mt-1">{formatCurrency(netAfterAll / 12)}/mo (net minus all expenses)</p>
+            <p className="text-xs text-gray-400 mt-1">avg {formatCurrency(netAfterAll / 12)}/mo (net minus all expenses)</p>
           </div>
         </div>
       )}
@@ -1224,13 +1220,13 @@ export default function Expenses() {
       {isSimpleMode ? (
         (fixedExpensesList.length > 0 || expenses.length > 0) && (
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Expense Breakdown (Monthly)</h3>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Expense Breakdown ({MONTH_NAMES_FULL[currentMonth - 1]})</h3>
             <ResponsiveContainer width="100%" height={280}>
               <PieChart>
                 <Pie
                   data={[
-                    ...fixedExpensesList.map((e) => ({ name: `${e.name} (fixed)`, value: toMonthly(e.amount, e.frequency) })),
-                    ...expenses.map((e) => ({ name: e.name, value: toMonthly(e.amount, e.frequency) })),
+                    ...fixedExpensesList.map((e) => ({ name: `${e.name} (fixed)`, value: getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth) })),
+                    ...expenses.map((e) => ({ name: e.name, value: getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth) })),
                   ]}
                   cx="50%" cy="50%" innerRadius={50} outerRadius={100} paddingAngle={3} dataKey="value">
                   {[...fixedExpensesList, ...expenses].map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}

@@ -2,7 +2,7 @@
 import { DollarSign, Plus, Trash2, Pencil, Info, X, Lock, Unlock, Check } from 'lucide-react';
 import { useIncomeStreams, useMonthlyIncomeLog } from '../hooks/useFirestore';
 import { useAppMode } from '../contexts/AppModeContext';
-import { FREQUENCIES, NEEDS_MONTH_PICKER, MONTH_NAMES, MONTH_NAMES_FULL, defaultMonthsForFrequency, getAmountForMonth, toMonthly, toAnnual, formatCurrency, formatCurrencyShort } from '../lib/financial';
+import { FREQUENCIES, NEEDS_MONTH_PICKER, MONTH_NAMES, MONTH_NAMES_FULL, defaultMonthsForFrequency, getAmountForMonth, toAnnual, formatCurrency, formatCurrencyShort } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 
@@ -274,19 +274,21 @@ export default function Income() {
   );
   const thisMonthActual = isLocked ? lockedData.total : thisMonthEstimated;
 
-  const totalMonthly = streams.reduce((sum, s) => sum + toMonthly(s.amount, s.frequency), 0);
   const totalAnnual = streams.reduce((sum, s) => sum + toAnnual(s.amount, s.frequency), 0);
   const taxableAnnual = streams.filter((s) => s.isTaxable).reduce((sum, s) => sum + toAnnual(s.amount, s.frequency), 0);
   const nonTaxableAnnual = totalAnnual - taxableAnnual;
 
+  const taxableThisMonth = streams.filter((s) => s.isTaxable).reduce((sum, s) => sum + getAmountForMonth(s.amount, s.frequency, s.applicableMonths, currentMonth), 0);
+  const nonTaxableThisMonth = thisMonthEstimated - taxableThisMonth;
+
   const pieData = streams.map((s) => ({
     name: s.name,
-    value: toMonthly(s.amount, s.frequency),
+    value: getAmountForMonth(s.amount, s.frequency, s.applicableMonths, currentMonth),
   }));
 
   const barData = [
-    { name: 'Taxable', monthly: taxableAnnual / 12 },
-    { name: 'Non-taxable', monthly: nonTaxableAnnual / 12 },
+    { name: 'Taxable', monthly: taxableThisMonth },
+    { name: 'Non-taxable', monthly: nonTaxableThisMonth },
   ];
 
   function handleSave(data) {
@@ -381,8 +383,8 @@ export default function Income() {
       {/* Summary Cards */}
       <div className={`grid grid-cols-1 ${isSimpleMode ? 'sm:grid-cols-2' : 'sm:grid-cols-3'} gap-4`}>
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-          <p className="text-sm text-gray-500 dark:text-gray-400">{isSimpleMode ? 'Avg Take-Home (Monthly)' : 'Avg Gross Income (Monthly)'}</p>
-          <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{formatCurrency(totalMonthly)}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{isSimpleMode ? `${MONTH_NAMES_FULL[currentMonth - 1]} Take-Home` : `${MONTH_NAMES_FULL[currentMonth - 1]} Gross Income`}</p>
+          <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{formatCurrency(thisMonthEstimated)}</p>
           <p className="text-xs text-gray-400 mt-1">{formatCurrency(totalAnnual)} / year</p>
         </div>
         {!isSimpleMode && (
@@ -399,7 +401,7 @@ export default function Income() {
         )}
         {isSimpleMode && (
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-            <p className="text-sm text-gray-500 dark:text-gray-400">Avg Take-Home (Annual)</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Annual Take-Home</p>
             <p className="text-2xl font-bold text-emerald-600 mt-1">{formatCurrency(totalAnnual)}</p>
           </div>
         )}

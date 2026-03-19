@@ -15,7 +15,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useAppMode } from '../contexts/AppModeContext';
 import { useIncomeStreams, useRetirement, useExpenses, useFixedExpenses, useBudgetProfiles, useVacations, useDebts, useLoanGroups, useTaxProfile } from '../hooks/useFirestore';
-import { FREQUENCIES, toAnnual, toMonthly, formatCurrency, getPeriodsPerYear } from '../lib/financial';
+import { FREQUENCIES, toAnnual, formatCurrency, getPeriodsPerYear, getAmountForMonth, MONTH_NAMES_FULL } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
 import { calculateAllStreamDeductions } from '../lib/taxEngine';
 import { cn } from '../lib/utils';
@@ -58,12 +58,20 @@ export default function Dashboard() {
   const { debts } = useDebts();
   const { loanGroups } = useLoanGroups();
 
-  // Income totals (includes bonus)
-  const totalGrossMonthly = useMemo(
-    () => streams.reduce((s, i) => s + toMonthly(i.amount, i.frequency) + toMonthly(i.bonusAmount || 0, i.frequency), 0),
+  const now = new Date();
+  const currentMonth = now.getMonth() + 1;
+  const currentYear = now.getFullYear();
+  const monthName = MONTH_NAMES_FULL[currentMonth - 1];
+
+  // Income totals — actual for this month
+  const totalGrossThisMonth = useMemo(
+    () => streams.reduce((s, i) => s + getAmountForMonth(i.amount, i.frequency, i.applicableMonths, currentMonth, currentYear) + getAmountForMonth(i.bonusAmount || 0, i.frequency, i.applicableMonths, currentMonth, currentYear), 0),
+    [streams, currentMonth, currentYear]
+  );
+  const totalGrossAnnual = useMemo(
+    () => streams.reduce((s, i) => s + toAnnual(i.amount, i.frequency) + toAnnual(i.bonusAmount || 0, i.frequency), 0),
     [streams]
   );
-  const totalGrossAnnual = totalGrossMonthly * 12;
 
   // Tax deductions (per-stream)
   const deductions = useMemo(() => {
@@ -92,6 +100,12 @@ export default function Dashboard() {
   );
 
   const totalExpensesAnnual = variableAnnual + fixedAnnual;
+
+  // Actual expenses for this month
+  const totalExpensesThisMonth = useMemo(
+    () => [...fixedExpenses, ...variableExpenses].reduce((s, e) => s + getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth, currentYear), 0),
+    [fixedExpenses, variableExpenses, currentMonth, currentYear]
+  );
   const allExpenses = [...fixedExpenses, ...variableExpenses];
 
   const netAnnual = deductions.netAnnual - totalExpensesAnnual;
@@ -203,8 +217,8 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {isSimpleMode ? (
           <SummaryCard
-            title="Take-Home Income"
-            value={formatCurrency(totalGrossMonthly)}
+            title={`${monthName} Take-Home`}
+            value={formatCurrency(totalGrossThisMonth)}
             subtitle={streams.length > 0 ? `${streams.length} source${streams.length !== 1 ? 's' : ''} · ${formatCurrency(totalGrossAnnual)}/yr` : 'No income entered yet'}
             icon={DollarSign}
             color="bg-emerald-500"
@@ -213,8 +227,8 @@ export default function Dashboard() {
         ) : (
           <>
             <SummaryCard
-              title="Gross Income"
-              value={formatCurrency(totalGrossMonthly)}
+              title={`${monthName} Gross Income`}
+              value={formatCurrency(totalGrossThisMonth)}
               subtitle={streams.length > 0 ? `${streams.length} stream${streams.length !== 1 ? 's' : ''} · ${formatCurrency(totalGrossAnnual)}/yr` : 'No income streams yet'}
               icon={DollarSign}
               color="bg-emerald-500"
@@ -223,7 +237,7 @@ export default function Dashboard() {
             <SummaryCard
               title="Net After Tax"
               value={formatCurrency(deductions.netAnnual / 12)}
-              subtitle={`After deductions · ${formatCurrency(deductions.netAnnual)}/yr`}
+              subtitle={`Annual avg after deductions · ${formatCurrency(deductions.netAnnual)}/yr`}
               icon={TrendingUp}
               color="bg-blue-500"
               to="/expenses"
@@ -239,8 +253,8 @@ export default function Dashboard() {
           </>
         )}
         <SummaryCard
-          title="Expenses"
-          value={formatCurrency(totalExpensesAnnual / 12)}
+          title={`${monthName} Expenses`}
+          value={formatCurrency(totalExpensesThisMonth)}
           subtitle={allExpenses.length > 0 ? `${fixedExpenses.length} fixed · ${variableExpenses.length} variable · ${formatCurrency(totalExpensesAnnual)}/yr` : 'No expenses yet'}
           icon={Receipt}
           color="bg-amber-500"

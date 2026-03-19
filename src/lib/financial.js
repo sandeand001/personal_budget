@@ -51,18 +51,30 @@ export function toMonthly(amount, frequency) {
 
 /**
  * Get the actual amount for a specific month (1-indexed).
- * For regular frequencies (weekly/biweekly/semimonthly/monthly), returns the
- * monthly equivalent every month. For quarterly/bimonthly/annual, returns
- * the full payment amount only in the applicable months, 0 otherwise.
+ * For weekly/biweekly, calculates based on actual days in that month
+ * so the value correctly reflects longer/shorter months.
+ * For semimonthly/monthly, returns the exact per-month amount.
+ * For quarterly/bimonthly/annual, returns the full payment amount
+ * only in the applicable months, 0 otherwise.
  */
-export function getAmountForMonth(amount, frequency, applicableMonths, month) {
-  if (!NEEDS_MONTH_PICKER.includes(frequency)) {
-    return toMonthly(amount, frequency);
+export function getAmountForMonth(amount, frequency, applicableMonths, month, year) {
+  if (NEEDS_MONTH_PICKER.includes(frequency)) {
+    const months = applicableMonths && applicableMonths.length > 0
+      ? applicableMonths
+      : defaultMonthsForFrequency(frequency);
+    return months.includes(month) ? amount : 0;
   }
-  const months = applicableMonths && applicableMonths.length > 0
-    ? applicableMonths
-    : defaultMonthsForFrequency(frequency);
-  return months.includes(month) ? amount : 0;
+
+  if (frequency === 'semimonthly') return amount * 2;
+  if (frequency === 'monthly') return amount;
+
+  // For weekly/biweekly, use actual days in the target month
+  const y = year || new Date().getFullYear();
+  const daysInMonth = new Date(y, month, 0).getDate();
+  if (frequency === 'weekly') return amount * (daysInMonth / 7);
+  if (frequency === 'biweekly') return amount * (daysInMonth / 14);
+
+  return toMonthly(amount, frequency);
 }
 
 // ─── Privacy Mode ───
