@@ -991,7 +991,7 @@ export default function Expenses() {
             <p className="text-xs text-gray-400 mt-0.5">Predictable recurring bills (rent, mortgage, insurance, etc.)</p>
           </div>
           <div className="flex items-center gap-3">
-            <span className="text-sm text-gray-500">{formatCurrency(totalFixedMonthly)}/mo</span>
+            <span className="text-sm text-gray-500">{formatCurrency(totalFixedThisMonth)} this mo</span>
             <button onClick={() => { setEditingFixed(null); setShowFixedModal(true); }}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-medium transition">
               <Plus className="w-3.5 h-3.5" /> Add
@@ -1066,7 +1066,7 @@ export default function Expenses() {
             <p className="text-xs text-gray-400 mt-0.5">Savings, credit card payments, extra debt payments, etc.</p>
           </div>
           <div className="flex items-center gap-3">
-            <span className="text-sm text-gray-500">{formatCurrency(totalVariableMonthly)}/mo</span>
+            <span className="text-sm text-gray-500">{formatCurrency(totalVariableThisMonth)} this mo</span>
             <button onClick={() => { setEditing(null); setShowModal(true); }}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-medium transition">
               <Plus className="w-3.5 h-3.5" /> Add
