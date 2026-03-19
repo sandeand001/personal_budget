@@ -135,8 +135,7 @@ export function getBonusForMonth(stream, month) {
 export function getStreamMonthTotal(stream, isSimpleMode, month, year) {
   const base = getStreamAmount(stream, isSimpleMode);
   const baseForMonth = getAmountForMonth(base, stream.frequency, stream.applicableMonths, month, year);
-  if (isSimpleMode) return baseForMonth;
-  // In detailed mode, add bonus for applicable months
+  // Add bonus for applicable months in both modes
   const bonus = getBonusForMonth(stream, month);
   const bonusForMonth = bonus > 0 ? getAmountForMonth(bonus, stream.frequency, stream.applicableMonths, month, year) : 0;
   return baseForMonth + bonusForMonth;

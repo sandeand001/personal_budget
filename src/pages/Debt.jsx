@@ -1,8 +1,9 @@
 import { useState, useMemo } from 'react';
-import { Landmark, Plus, Trash2, Pencil, X, TrendingDown, ChevronDown, ChevronRight, GraduationCap, Lock, Unlock } from 'lucide-react';
+import { Landmark, Plus, Trash2, Pencil, X, TrendingDown, ChevronDown, ChevronRight, GraduationCap, Lock, Unlock, Info, ToggleLeft, ToggleRight } from 'lucide-react';
 import { useDebts, useLoanGroups, useFixedExpenses, useExpenses, useMonthlyDebtLog } from '../hooks/useFirestore';
 import { formatCurrency, formatCurrencyShort, FREQUENCIES, toMonthly, toAnnual, getAmountForMonth, MONTH_NAMES_FULL } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
+import { useAppMode } from '../contexts/AppModeContext';
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -602,6 +603,7 @@ export default function Debt() {
   const { expenses: variableExpensesList } = useExpenses();
   const { logs: debtLogs, lockMonth: lockDebtMonth, unlockMonth: unlockDebtMonth } = useMonthlyDebtLog();
   usePrivacy();
+  const { isSimpleMode, toggleMode } = useAppMode();
   const [modalOpen, setModalOpen] = useState(false);
   const [editItem, setEditItem] = useState(null);
   const [deleteItem, setDeleteItem] = useState(null);
@@ -799,6 +801,33 @@ export default function Debt() {
             className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition">
             <Plus className="w-4 h-4" /> Add Debt
           </button>
+        </div>
+      </div>
+
+      {/* Mode Toggle */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={toggleMode}
+            className="flex items-center gap-2 text-gray-700 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition"
+          >
+            {isSimpleMode
+              ? <ToggleLeft className="w-8 h-8 text-gray-400" />
+              : <ToggleRight className="w-8 h-8 text-emerald-500" />}
+            <span className="font-medium text-sm">
+              {isSimpleMode ? 'Simple Mode' : 'Detailed Mode'}
+            </span>
+          </button>
+          <details className="inline">
+            <summary className="cursor-pointer text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+              <Info className="w-4 h-4 inline" />
+            </summary>
+            <div className="absolute mt-2 z-20 w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 shadow-lg text-sm text-gray-600 dark:text-gray-400 space-y-2">
+              <p><strong>Detailed Mode</strong> (default) gives you the full picture: gross income, tax profile with W-4 settings, auto-calculated or manual paystub deductions, FICA, 401(k), and a projected tax refund/owed estimate.</p>
+              <p><strong>Simple Mode</strong> is for people who just want to enter the take-home pay they actually receive (net income). Tax calculations, 401(k), and paycheck deductions are all skipped. The Expenses page only shows bills you pay yourself — no tax or retirement sections.</p>
+              <p className="italic text-xs">Tip: You can switch between modes at any time. Your data is preserved — switching modes only changes what the app shows you.</p>
+            </div>
+          </details>
         </div>
       </div>
 
