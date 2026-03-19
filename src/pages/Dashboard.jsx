@@ -14,7 +14,7 @@ import {
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useAppMode } from '../contexts/AppModeContext';
-import { useIncomeStreams, useRetirement, useExpenses, useFixedExpenses, useBudgetProfiles, useVacations, useDebts, useLoanGroups } from '../hooks/useFirestore';
+import { useIncomeStreams, useRetirement, useExpenses, useFixedExpenses, useBudgetProfiles, useVacations, useDebts, useLoanGroups, useTaxProfile } from '../hooks/useFirestore';
 import { FREQUENCIES, toAnnual, toMonthly, formatCurrency, getPeriodsPerYear } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
 import { calculateAllStreamDeductions } from '../lib/taxEngine';
@@ -50,6 +50,7 @@ export default function Dashboard() {
 
   const { streams } = useIncomeStreams();
   const { retirement } = useRetirement();
+  const { profile: taxProfile } = useTaxProfile();
   const { expenses: variableExpenses } = useExpenses();
   const { expenses: fixedExpenses } = useFixedExpenses();
   const { profiles: budgetProfiles } = useBudgetProfiles();
@@ -70,7 +71,7 @@ export default function Dashboard() {
       ...s,
       periodsPerYear: getPeriodsPerYear(s.frequency),
     }));
-    const result = calculateAllStreamDeductions(preparedStreams, retirement || {});
+    const result = calculateAllStreamDeductions(preparedStreams, retirement || {}, taxProfile || {});
     const t = result.totals;
     return {
       totalGrossAnnual: t.totalGrossAnnual,
@@ -78,7 +79,7 @@ export default function Dashboard() {
       netAnnual: t.totalNet,
       refundOrOwed: t.totalExtraWithholding,
     };
-  }, [streams, retirement]);
+  }, [streams, retirement, taxProfile]);
 
   const variableAnnual = useMemo(
     () => variableExpenses.reduce((s, e) => s + toAnnual(e.amount, e.frequency), 0),
@@ -160,7 +161,7 @@ export default function Dashboard() {
               <Info className="w-4 h-4 inline" />
             </summary>
             <div className="absolute mt-2 z-20 w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 shadow-lg text-sm text-gray-600 dark:text-gray-400 space-y-2">
-              <p><strong>Detailed Mode</strong> (default) gives you the full picture: gross income, W-2/1099 classification, tax brackets, FICA, 401(k) deductions, and a projected tax refund/owed estimate.</p>
+              <p><strong>Detailed Mode</strong> (default) gives you the full picture: gross income, tax profile with W-4 settings, auto-calculated or manual paystub deductions, FICA, 401(k), and a projected tax refund/owed estimate.</p>
               <p><strong>Simple Mode</strong> is for people who just want to enter the take-home pay they actually receive (net income). Tax calculations, 401(k), and paycheck deductions are all skipped. The Expenses page only shows bills you pay yourself — no tax or retirement sections.</p>
               <p className="italic text-xs">Tip: You can switch between modes at any time. Your data is preserved — switching modes only changes what the app shows you.</p>
             </div>
@@ -186,8 +187,8 @@ export default function Dashboard() {
               </>
             ) : (
               <>
-                <p>1. <strong>Income</strong> — Add your income streams (salary, side jobs, VA disability, etc.)</p>
-                <p>2. <strong>Expenses</strong> — Set up your tax profile and add recurring expenses</p>
+                <p>1. <strong>Income</strong> — Add your gross (pre-tax) income streams</p>
+                <p>2. <strong>Expenses</strong> — Set up your tax profile, enter or auto-calculate deductions, and add expenses</p>
                 <p>3. <strong>Spending Money</strong> — Create a spending budget and track your purchases</p>
                 <p>4. <strong>Vacations</strong> — Plan trips, track costs, and set savings goals</p>
                 <p>5. <strong>Debt</strong> — Track loans and plan repayment strategies</p>
@@ -220,9 +221,9 @@ export default function Dashboard() {
               to="/income"
             />
             <SummaryCard
-              title="Net Income"
-              value={formatCurrency(netAnnual / 12)}
-              subtitle={`After taxes, 401k & expenses · ${formatCurrency(netAnnual)}/yr`}
+              title="Net After Tax"
+              value={formatCurrency(deductions.netAnnual / 12)}
+              subtitle={`After deductions · ${formatCurrency(deductions.netAnnual)}/yr`}
               icon={TrendingUp}
               color="bg-blue-500"
               to="/expenses"
@@ -275,7 +276,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Income Breakdown */}
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">{isSimpleMode ? 'Income Sources' : 'Income Streams'}</h2>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">{isSimpleMode ? 'Take-Home Pay' : 'Gross Income Streams'}</h2>
           {streams.length === 0 ? (
             <div className="text-center py-6 text-gray-400 dark:text-gray-500">
               <DollarSign className="w-8 h-8 mx-auto mb-2 opacity-50" />

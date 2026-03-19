@@ -1,14 +1,183 @@
 import { useState, useMemo } from 'react';
 import { Receipt, Plus, Trash2, Pencil, Info, Calculator, X, Settings, ChevronDown, ChevronUp, Lock, Unlock, DollarSign, Banknote } from 'lucide-react';
-import { useIncomeStreams, useRetirement, useExpenses, useFixedExpenses, useMonthlyIncomeLog, useMonthlyExpenseLog, useCurrentBalance, useBudgetProfiles } from '../hooks/useFirestore';
+import { useIncomeStreams, useRetirement, useExpenses, useFixedExpenses, useMonthlyIncomeLog, useMonthlyExpenseLog, useCurrentBalance, useBudgetProfiles, useTaxProfile } from '../hooks/useFirestore';
 import { FREQUENCIES, NEEDS_MONTH_PICKER, MONTH_NAMES, MONTH_NAMES_FULL, defaultMonthsForFrequency, getAmountForMonth, toAnnual, toMonthly, formatCurrency, formatCurrencyShort, getPeriodsPerYear } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
-import { calculateAllStreamDeductions, FILING_STATUSES } from '../lib/taxEngine';
+import { calculateAllStreamDeductions, FILING_STATUSES, STATES } from '../lib/taxEngine';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { useAppMode } from '../contexts/AppModeContext';
 import { cn } from '../lib/utils';
 
 const COLORS = ['#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6', '#06b6d4', '#10b981', '#ec4899', '#84cc16'];
+
+// ─── Tax Profile Section ───
+
+function TaxProfileForm({ taxProfile, onSave }) {
+  const [form, setForm] = useState(taxProfile || {
+    filingStatus: 'single',
+    state: 'TX',
+    dependents: 0,
+    w4Allowances: 0,
+    extraWithholding: 0,
+    manualDeductions: { enabled: false, federalTax: '', stateTax: '', fica: '', retirement: '', other: '' },
+  });
+  const [open, setOpen] = useState(!taxProfile);
+
+  function handleSave() {
+    onSave({
+      filingStatus: form.filingStatus,
+      state: form.state,
+      dependents: parseInt(form.dependents) || 0,
+      w4Allowances: parseInt(form.w4Allowances) || 0,
+      extraWithholding: parseFloat(form.extraWithholding) || 0,
+      manualDeductions: form.manualDeductions?.enabled ? {
+        enabled: true,
+        federalTax: parseFloat(form.manualDeductions.federalTax) || 0,
+        stateTax: parseFloat(form.manualDeductions.stateTax) || 0,
+        fica: parseFloat(form.manualDeductions.fica) || 0,
+        retirement: parseFloat(form.manualDeductions.retirement) || 0,
+        other: parseFloat(form.manualDeductions.other) || 0,
+      } : { enabled: false },
+    });
+    setOpen(false);
+  }
+
+  function updateManual(field, value) {
+    setForm({ ...form, manualDeductions: { ...form.manualDeductions, [field]: value } });
+  }
+
+  const stateName = STATES.find((s) => s.code === form.state)?.name || form.state;
+  const filingLabel = FILING_STATUSES.find((f) => f.value === form.filingStatus)?.label || form.filingStatus;
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
+      <button onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-5 py-4 text-left">
+        <div className="flex items-center gap-3">
+          <Calculator className="w-5 h-5 text-gray-400" />
+          <div>
+            <h3 className="font-semibold text-gray-900 dark:text-white text-sm">Tax Profile &amp; W-4</h3>
+            {taxProfile && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                {filingLabel} &middot; {stateName}
+                {(taxProfile.dependents || 0) > 0 && ` · ${taxProfile.dependents} dependent${taxProfile.dependents !== 1 ? 's' : ''}`}
+                {(taxProfile.w4Allowances || 0) > 0 && ` · ${taxProfile.w4Allowances} W-4 allowance${taxProfile.w4Allowances !== 1 ? 's' : ''}`}
+                {taxProfile.manualDeductions?.enabled && ' · Using paystub deductions'}
+              </p>
+            )}
+          </div>
+        </div>
+        {open ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+      </button>
+      {open && (
+        <div className="px-5 pb-5 border-t border-gray-100 dark:border-gray-700 pt-4 space-y-4">
+          {/* Filing & State */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Filing Status</label>
+              <select value={form.filingStatus} onChange={(e) => setForm({ ...form, filingStatus: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm">
+                {FILING_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">State</label>
+              <select value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm">
+                {STATES.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Dependents & W-4 */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Dependents (actual)</label>
+              <input type="number" min="0" value={form.dependents || 0}
+                onChange={(e) => setForm({ ...form, dependents: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+              <p className="text-xs text-gray-400 mt-1">Children / qualifying dependents for tax credits</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">W-4 Allowances Claimed</label>
+              <input type="number" min="0" value={form.w4Allowances || 0}
+                onChange={(e) => setForm({ ...form, w4Allowances: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+              <p className="text-xs text-gray-400 mt-1">Number claimed on your W-4 form</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Extra Withholding ($/mo)</label>
+              <input type="number" min="0" step="0.01" value={form.extraWithholding || 0}
+                onChange={(e) => setForm({ ...form, extraWithholding: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+              <p className="text-xs text-gray-400 mt-1">Additional tax withheld per month</p>
+            </div>
+          </div>
+
+          {/* Manual Deductions Toggle */}
+          <div className="border border-gray-200 dark:border-gray-600 rounded-lg p-4 space-y-3">
+            <div className="flex items-center gap-3">
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" checked={form.manualDeductions?.enabled || false}
+                  onChange={(e) => setForm({ ...form, manualDeductions: { ...form.manualDeductions, enabled: e.target.checked } })}
+                  className="sr-only peer" />
+                <div className="w-9 h-5 bg-gray-300 peer-checked:bg-blue-500 rounded-full peer-focus:ring-2 peer-focus:ring-blue-300 transition after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
+              </label>
+              <div>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Enter paystub deductions manually</span>
+                <p className="text-xs text-gray-400">Use exact amounts from your pay stub instead of auto-calculating</p>
+              </div>
+            </div>
+            {form.manualDeductions?.enabled && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-2">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Federal Tax (per check)</label>
+                  <input type="number" min="0" step="0.01" value={form.manualDeductions.federalTax || ''}
+                    onChange={(e) => updateManual('federalTax', e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">State Tax (per check)</label>
+                  <input type="number" min="0" step="0.01" value={form.manualDeductions.stateTax || ''}
+                    onChange={(e) => updateManual('stateTax', e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">FICA / SS+Medicare (per check)</label>
+                  <input type="number" min="0" step="0.01" value={form.manualDeductions.fica || ''}
+                    onChange={(e) => updateManual('fica', e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">401(k) / Retirement (per check)</label>
+                  <input type="number" min="0" step="0.01" value={form.manualDeductions.retirement || ''}
+                    onChange={(e) => updateManual('retirement', e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Other Deductions (per check)</label>
+                  <input type="number" min="0" step="0.01" value={form.manualDeductions.other || ''}
+                    onChange={(e) => updateManual('other', e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <button onClick={handleSave}
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition">
+            Save Tax Profile
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ─── Retirement Section ───
 
@@ -392,6 +561,7 @@ export default function Expenses() {
   usePrivacy();
   const { streams } = useIncomeStreams();
   const { retirement, saveRetirement } = useRetirement();
+  const { profile: taxProfile, saveTaxProfile } = useTaxProfile();
   const { expenses, addExpense, updateExpense, removeExpense } = useExpenses();
   const { expenses: fixedExpensesList, addExpense: addFixed, updateExpense: updateFixed, removeExpense: removeFixed } = useFixedExpenses();
   const { logs: incomeLogs } = useMonthlyIncomeLog();
@@ -432,7 +602,8 @@ export default function Expenses() {
   const streamDeductions = useMemo(() => calculateAllStreamDeductions(
     preparedStreams,
     retirement || {},
-  ), [preparedStreams, retirement]);
+    taxProfile || {},
+  ), [preparedStreams, retirement, taxProfile]);
 
   // Backwards-compatible deductions object for charts and totals
   const deductions = useMemo(() => {
@@ -556,7 +727,7 @@ export default function Expenses() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{isSimpleMode ? 'Expenses' : 'Expenses & Deductions'}</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">{isSimpleMode ? 'Track the bills and expenses you pay each month.' : 'Calculate deductions, track expenses, and see your net income.'}</p>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">{isSimpleMode ? 'Track expenses against your take-home pay.' : 'Set up your tax profile, calculate deductions from gross income, and track expenses.'}</p>
         </div>
       </div>
 
@@ -676,7 +847,7 @@ export default function Expenses() {
               <Calculator className="w-5 h-5" />
               <h2 className="text-lg font-semibold">Projected Tax Refund / Amount Owed</h2>
             </div>
-            {streams.some(s => s.isTaxable && s.taxProfile) ? (
+            {taxProfile ? (
               <>
                 <p className="text-3xl font-bold">
                   {refundAmount >= 0 ? '+' : ''}{formatCurrency(refundAmount)}
@@ -688,10 +859,13 @@ export default function Expenses() {
             ) : (
               <>
                 <p className="text-3xl font-bold">$0.00</p>
-                <p className="text-white/80 text-sm mt-1">Set up tax profiles on each income stream to see estimates</p>
+                <p className="text-white/80 text-sm mt-1">Set up your tax profile below to see estimates</p>
               </>
             )}
           </div>
+
+          {/* Tax Profile */}
+          <TaxProfileForm taxProfile={taxProfile} onSave={saveTaxProfile} />
 
           {/* Retirement Settings */}
           <RetirementForm retirement={retirement} onSave={saveRetirement} />
@@ -705,7 +879,7 @@ export default function Expenses() {
                     <div>
                       <h3 className="font-semibold text-gray-900 dark:text-white">{sr.streamName}</h3>
                       <p className="text-xs text-gray-500 dark:text-gray-400">
-                        {FILING_STATUSES.find(f => f.value === sr.filingStatus)?.label} · {sr.stateName}
+                        {sr.isManual ? 'Using paystub deductions' : `${FILING_STATUSES.find(f => f.value === sr.filingStatus)?.label} · ${sr.stateName}`}
                         {sr.dependents > 0 && ` · ${sr.dependents} dependent${sr.dependents !== 1 ? 's' : ''}`}
                         {sr.bonusAnnual > 0 && ` · Includes ${formatCurrency(sr.bonusAnnual)}/yr bonus`}
                       </p>
@@ -971,12 +1145,12 @@ export default function Expenses() {
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
             <p className="text-sm text-gray-500 dark:text-gray-400">Disposable Income</p>
             {(() => {
-              const totalIncomeMonthly = streams.reduce((sum, s) => sum + toMonthly(s.amount, s.frequency), 0);
-              const disposable = totalIncomeMonthly - totalAllExpensesMonthly;
+              const totalTakeHomeMonthly = streams.reduce((sum, s) => sum + toMonthly(s.amount, s.frequency), 0);
+              const disposable = totalTakeHomeMonthly - totalAllExpensesMonthly;
               return (
                 <>
                   <p className={`text-2xl font-bold mt-1 ${disposable >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{formatCurrency(disposable)}</p>
-                  <p className="text-xs text-gray-400 mt-1">Take-home income minus all expenses (monthly)</p>
+                  <p className="text-xs text-gray-400 mt-1">Take-home pay minus all expenses (monthly)</p>
                 </>
               );
             })()}
@@ -985,7 +1159,7 @@ export default function Expenses() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-            <p className="text-sm text-gray-500 dark:text-gray-400">Gross Annual</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Gross Annual Income</p>
             <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{formatCurrency(deductions.totalGrossAnnual)}</p>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
@@ -996,7 +1170,7 @@ export default function Expenses() {
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
             <p className="text-sm text-gray-500 dark:text-gray-400">Disposable Income</p>
             <p className={`text-2xl font-bold mt-1 ${netAfterAll >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{formatCurrency(netAfterAll)}</p>
-            <p className="text-xs text-gray-400 mt-1">{formatCurrency(netAfterAll / 12)}/mo (after all expenses)</p>
+            <p className="text-xs text-gray-400 mt-1">{formatCurrency(netAfterAll / 12)}/mo (net minus all expenses)</p>
           </div>
         </div>
       )}

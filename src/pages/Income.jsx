@@ -1,10 +1,9 @@
 ﻿import { useState, useMemo } from 'react';
-import { DollarSign, Plus, Trash2, Pencil, Info, X, Lock, Unlock, Check, ChevronDown, ChevronUp } from 'lucide-react';
+import { DollarSign, Plus, Trash2, Pencil, Info, X, Lock, Unlock, Check } from 'lucide-react';
 import { useIncomeStreams, useMonthlyIncomeLog } from '../hooks/useFirestore';
 import { useAppMode } from '../contexts/AppModeContext';
 import { FREQUENCIES, NEEDS_MONTH_PICKER, MONTH_NAMES, MONTH_NAMES_FULL, defaultMonthsForFrequency, getAmountForMonth, toMonthly, toAnnual, formatCurrency, formatCurrencyShort } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
-import { STATES, FILING_STATUSES } from '../lib/taxEngine';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 
 const INCOME_TYPES = [
@@ -23,9 +22,7 @@ function IncomeModal({ onClose, onSave, initial, isSimpleMode }) {
     isTaxable: true,
     applicableMonths: [],
     bonusAmount: '',
-    taxProfile: { filingStatus: 'single', state: 'TX', dependents: 0, extraWithholding: 0 },
   });
-  const [showTaxProfile, setShowTaxProfile] = useState(!!(initial?.taxProfile?.filingStatus));
 
   function handleFrequencyChange(freq) {
     const needsPicker = NEEDS_MONTH_PICKER.includes(freq);
@@ -46,22 +43,12 @@ function IncomeModal({ onClose, onSave, initial, isSimpleMode }) {
     });
   }
 
-  function updateTaxProfile(field, value) {
-    setForm({ ...form, taxProfile: { ...form.taxProfile, [field]: value } });
-  }
-
   function handleSubmit(e) {
     e.preventDefault();
     const data = {
       ...form,
       amount: parseFloat(form.amount) || 0,
       bonusAmount: parseFloat(form.bonusAmount) || 0,
-      taxProfile: form.isTaxable && !isSimpleMode ? {
-        filingStatus: form.taxProfile?.filingStatus || 'single',
-        state: form.taxProfile?.state || 'TX',
-        dependents: parseInt(form.taxProfile?.dependents) || 0,
-        extraWithholding: parseFloat(form.taxProfile?.extraWithholding) || 0,
-      } : null,
     };
     onSave(data);
     onClose();
@@ -74,7 +61,7 @@ function IncomeModal({ onClose, onSave, initial, isSimpleMode }) {
           <X className="w-5 h-5" />
         </button>
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-          {initial ? 'Edit Income' : (isSimpleMode ? 'Add Take-Home Income' : 'Add Income Stream')}
+          {initial ? 'Edit Income' : (isSimpleMode ? 'Add Take-Home Pay' : 'Add Gross Income')}
         </h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -97,7 +84,7 @@ function IncomeModal({ onClose, onSave, initial, isSimpleMode }) {
               </div>
             )}
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{isSimpleMode ? 'Take-Home Amount ($)' : 'Amount ($)'}</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{isSimpleMode ? 'Take-Home Amount ($)' : 'Gross Amount ($)'}</label>
               <input
                 type="number" required min="0" step="0.01" value={form.amount}
                 onChange={(e) => setForm({ ...form, amount: e.target.value })}
@@ -152,50 +139,6 @@ function IncomeModal({ onClose, onSave, initial, isSimpleMode }) {
                 className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
               />
               <p className="text-xs text-gray-400 mt-1">If you get a bonus on the same pay stub, enter the per-paycheck bonus amount. Tax is calculated on combined pay + bonus.</p>
-            </div>
-          )}
-          {/* Per-Stream Tax Profile */}
-          {!isSimpleMode && form.isTaxable && (
-            <div className="border border-gray-200 dark:border-gray-600 rounded-lg overflow-hidden">
-              <button type="button" onClick={() => setShowTaxProfile(!showTaxProfile)}
-                className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-700/50 text-left">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Tax Profile</span>
-                {showTaxProfile ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
-              </button>
-              {showTaxProfile && (
-                <div className="px-4 pb-4 pt-3 space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Filing Status</label>
-                      <select value={form.taxProfile?.filingStatus || 'single'}
-                        onChange={(e) => updateTaxProfile('filingStatus', e.target.value)}
-                        className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm">
-                        {FILING_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">State</label>
-                      <select value={form.taxProfile?.state || 'TX'}
-                        onChange={(e) => updateTaxProfile('state', e.target.value)}
-                        className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm">
-                        {STATES.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Dependents</label>
-                      <input type="number" min="0" value={form.taxProfile?.dependents || 0}
-                        onChange={(e) => updateTaxProfile('dependents', e.target.value)}
-                        className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Extra W/H ($/mo)</label>
-                      <input type="number" min="0" step="0.01" value={form.taxProfile?.extraWithholding || 0}
-                        onChange={(e) => updateTaxProfile('extraWithholding', e.target.value)}
-                        className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
           )}
           <div className="flex gap-3 pt-2">
@@ -374,8 +317,8 @@ export default function Income() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Income</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">{isSimpleMode ? 'Enter your take-home pay from each source.' : 'Manage your income streams and track total gross income.'}</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{isSimpleMode ? 'Take-Home Pay' : 'Gross Income'}</h1>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">{isSimpleMode ? 'Enter the amount you actually receive after taxes and deductions.' : 'Enter your pre-tax gross income. Deductions are calculated on the Expenses page.'}</p>
         </div>
         <button onClick={() => { setEditing(null); setShowModal(true); }}
           className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition">
@@ -427,9 +370,9 @@ export default function Income() {
             </>
           ) : (
             <>
-              <p>Add each source of income — salary, side jobs, rental income, VA disability, etc.</p>
-              <p>Set the frequency (weekly, bi-weekly, semi-monthly, monthly, or annual) and whether it's taxable.</p>
-              <p>Your totals are automatically calculated and shown on the Dashboard.</p>
+              <p>Add each source of gross (pre-tax) income — salary, side jobs, rental income, VA disability, etc.</p>
+              <p>Set the frequency and whether it's taxable. Mark non-taxable income (like VA disability) as non-taxable.</p>
+              <p>Tax deductions and withholding are configured on the <strong>Expenses &amp; Deductions</strong> page.</p>
             </>
           )}
         </div>
@@ -438,7 +381,7 @@ export default function Income() {
       {/* Summary Cards */}
       <div className={`grid grid-cols-1 ${isSimpleMode ? 'sm:grid-cols-2' : 'sm:grid-cols-3'} gap-4`}>
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-          <p className="text-sm text-gray-500 dark:text-gray-400">{isSimpleMode ? 'Avg Take-Home (Monthly)' : 'Avg Gross (Monthly)'}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{isSimpleMode ? 'Avg Take-Home (Monthly)' : 'Avg Gross Income (Monthly)'}</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{formatCurrency(totalMonthly)}</p>
           <p className="text-xs text-gray-400 mt-1">{formatCurrency(totalAnnual)} / year</p>
         </div>
@@ -492,11 +435,6 @@ export default function Income() {
                         {s.name}
                         {!isSimpleMode && s.bonusAmount > 0 && (
                           <span className="ml-2 text-xs text-amber-600 dark:text-amber-400">+{formatCurrency(s.bonusAmount)} bonus</span>
-                        )}
-                        {!isSimpleMode && s.isTaxable && s.taxProfile && (
-                          <p className="text-[10px] text-gray-400 mt-0.5">
-                            {FILING_STATUSES.find(f => f.value === s.taxProfile.filingStatus)?.label || 'Single'} · {STATES.find(st => st.code === s.taxProfile.state)?.name || s.taxProfile.state}
-                          </p>
                         )}
                       </td>
                       {!isSimpleMode && (
@@ -573,7 +511,7 @@ export default function Income() {
       {showModal && (
         <IncomeModal
           isSimpleMode={isSimpleMode}
-          initial={editing ? { name: editing.name, type: editing.type, amount: editing.amount, frequency: editing.frequency, isTaxable: editing.isTaxable, applicableMonths: editing.applicableMonths || [] } : null}
+          initial={editing ? { name: editing.name, type: editing.type, amount: editing.amount, frequency: editing.frequency, isTaxable: editing.isTaxable, applicableMonths: editing.applicableMonths || [], bonusAmount: editing.bonusAmount || '' } : null}
           onClose={() => { setShowModal(false); setEditing(null); }}
           onSave={handleSave}
         />

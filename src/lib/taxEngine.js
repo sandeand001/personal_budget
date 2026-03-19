@@ -291,10 +291,14 @@ export function calculateAllDeductions({
  * Per-stream tax calculation — calculates deductions for a single income stream
  * using its own tax profile. Used when each income source has individual tax settings.
  */
-export function calculateStreamDeductions(stream, retirement = {}) {
-  const taxProfile = stream.taxProfile || {};
-  const { filingStatus = 'single', state = 'TX', dependents = 0, extraWithholding = 0 } = taxProfile;
+export function calculateStreamDeductions(stream, retirement = {}, householdTaxProfile = {}) {
+  // Use household-level tax profile as the source (per-stream taxProfile is legacy fallback)
+  const tp = stream.taxProfile || householdTaxProfile || {};
+  const { filingStatus = 'single', state = 'TX', dependents = 0, extraWithholding = 0, w4Allowances = 0 } = { ...householdTaxProfile, ...tp };
   const { traditionalPct = 0, rothPct = 0 } = retirement;
+
+  // Manual deduction overrides from household tax profile
+  const manualDeductions = householdTaxProfile.manualDeductions || null;
 
   const periodsPerYear = stream.periodsPerYear || 12;
   const baseAnnual = stream.amount * periodsPerYear;
@@ -324,6 +328,47 @@ export function calculateStreamDeductions(stream, retirement = {}) {
   }
 
   const isW2 = stream.type !== '1099';
+
+  // If manual deductions are provided, use paystub values scaled to annual
+  if (manualDeductions && manualDeductions.enabled) {
+    const md = manualDeductions;
+    const fedTaxAnnual = (parseFloat(md.federalTax) || 0) * periodsPerYear;
+    const stateTaxAnnual = (parseFloat(md.stateTax) || 0) * periodsPerYear;
+    const ficaAnnual = (parseFloat(md.fica) || 0) * periodsPerYear;
+    const k401Annual = (parseFloat(md.retirement) || 0) * periodsPerYear;
+    const otherAnnual = (parseFloat(md.other) || 0) * periodsPerYear;
+    const totalDeductions = fedTaxAnnual + stateTaxAnnual + ficaAnnual + k401Annual + otherAnnual;
+    const netAnnual = grossAnnual - totalDeductions;
+    const extraWithholdingAnnual = (extraWithholding || 0) * 12;
+
+    return {
+      streamId: stream.id,
+      streamName: stream.name,
+      grossAnnual,
+      baseAnnual,
+      bonusAnnual,
+      isTaxable: true,
+      filingStatus,
+      state,
+      stateName: STATE_TAX_DATA[state]?.name || state,
+      dependents,
+      w4Allowances,
+      isManual: true,
+      standardDeduction: STANDARD_DEDUCTION[filingStatus] || STANDARD_DEDUCTION.single,
+      k401: { traditional: k401Annual, roth: 0, total: k401Annual },
+      fica: { total: ficaAnnual },
+      totalFICA: ficaAnnual,
+      federalTax: fedTaxAnnual,
+      childCredit: 0,
+      federalTaxAfterCredits: fedTaxAnnual,
+      stateTax: stateTaxAnnual,
+      otherDeductions: otherAnnual,
+      extraWithholdingAnnual,
+      totalDeductions,
+      netAnnual,
+      perPaycheck: netAnnual / periodsPerYear,
+    };
+  }
 
   // 401(k) — only for W-2
   const k401 = isW2 ? calculate401k(grossAnnual, traditionalPct, rothPct) : { traditional: 0, roth: 0, total: 0 };
@@ -375,8 +420,8 @@ export function calculateStreamDeductions(stream, retirement = {}) {
 /**
  * Calculate deductions for all streams individually, then aggregate.
  */
-export function calculateAllStreamDeductions(incomeStreams = [], retirement = {}) {
-  const streamResults = incomeStreams.map((s) => calculateStreamDeductions(s, retirement));
+export function calculateAllStreamDeductions(incomeStreams = [], retirement = {}, householdTaxProfile = {}) {
+  const streamResults = incomeStreams.map((s) => calculateStreamDeductions(s, retirement, householdTaxProfile));
 
   const totals = streamResults.reduce((acc, r) => ({
     totalGrossAnnual: acc.totalGrossAnnual + r.grossAnnual,
