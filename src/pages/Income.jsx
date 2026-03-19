@@ -14,14 +14,19 @@ const INCOME_TYPES = [
 const COLORS = ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#84cc16'];
 
 function IncomeModal({ onClose, onSave, initial, isSimpleMode }) {
-  const [form, setForm] = useState(initial || {
-    name: '',
-    type: 'w2',
-    amount: '',
-    frequency: 'monthly',
-    isTaxable: true,
-    applicableMonths: [],
-    bonusAmount: '',
+  const [form, setForm] = useState(() => {
+    const defaults = {
+      name: '',
+      type: 'w2',
+      amount: '',
+      frequency: 'monthly',
+      isTaxable: true,
+      applicableMonths: [],
+      bonusAmount: '',
+      manualDeductions: { enabled: false },
+    };
+    if (!initial) return defaults;
+    return { ...defaults, ...initial };
   });
 
   function handleFrequencyChange(freq) {
@@ -49,6 +54,9 @@ function IncomeModal({ onClose, onSave, initial, isSimpleMode }) {
       ...form,
       amount: parseFloat(form.amount) || 0,
       bonusAmount: parseFloat(form.bonusAmount) || 0,
+      manualDeductions: form.isTaxable && form.manualDeductions?.enabled
+        ? { ...(form.manualDeductions || {}), enabled: true }
+        : { enabled: false },
     };
     onSave(data);
     onClose();
@@ -120,12 +128,26 @@ function IncomeModal({ onClose, onSave, initial, isSimpleMode }) {
           {!isSimpleMode && (
             <div className="flex items-center gap-3">
               <label className="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" checked={form.isTaxable} onChange={(e) => setForm({ ...form, isTaxable: e.target.checked })} className="sr-only peer" />
+                <input type="checkbox" checked={form.isTaxable} onChange={(e) => setForm({ ...form, isTaxable: e.target.checked, ...(e.target.checked ? {} : { manualDeductions: { enabled: false } }) })} className="sr-only peer" />
                 <div className="w-9 h-5 bg-gray-300 peer-checked:bg-emerald-500 rounded-full peer-focus:ring-2 peer-focus:ring-emerald-300 transition after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
               </label>
               <span className="text-sm text-gray-700 dark:text-gray-300">
                 {form.isTaxable ? 'Taxable income' : 'Non-taxable (e.g., VA disability)'}
               </span>
+            </div>
+          )}
+          {!isSimpleMode && form.isTaxable && (
+            <div className="flex items-center gap-3 pl-1">
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" checked={form.manualDeductions?.enabled || false}
+                  onChange={(e) => setForm({ ...form, manualDeductions: { ...(form.manualDeductions || {}), enabled: e.target.checked } })}
+                  className="sr-only peer" />
+                <div className="w-9 h-5 bg-gray-300 peer-checked:bg-blue-500 rounded-full peer-focus:ring-2 peer-focus:ring-blue-300 transition after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
+              </label>
+              <div>
+                <span className="text-sm text-gray-700 dark:text-gray-300">Allow manual deductions</span>
+                <p className="text-xs text-gray-400">Enter exact amounts from your pay stub on the Expenses page</p>
+              </div>
             </div>
           )}
           {/* Bonus */}

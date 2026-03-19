@@ -297,8 +297,9 @@ export function calculateStreamDeductions(stream, retirement = {}, householdTaxP
   const { filingStatus = 'single', state = 'TX', dependents = 0, extraWithholding = 0, w4Allowances = 0 } = { ...householdTaxProfile, ...tp };
   const { traditionalPct = 0, rothPct = 0 } = retirement;
 
-  // Manual deduction overrides from household tax profile
-  const manualDeductions = householdTaxProfile.manualDeductions || null;
+  // Check stream-level manual deductions first, then household fallback
+  const manualDeductions = (stream.manualDeductions?.enabled ? stream.manualDeductions : null)
+    || (householdTaxProfile.manualDeductions?.enabled ? householdTaxProfile.manualDeductions : null);
 
   const periodsPerYear = stream.periodsPerYear || 12;
   const baseAnnual = stream.amount * periodsPerYear;
@@ -321,8 +322,10 @@ export function calculateStreamDeductions(stream, retirement = {}, householdTaxP
       childCredit: 0,
       federalTaxAfterCredits: 0,
       extraWithholdingAnnual: 0,
+      otherDeductions: 0,
       totalDeductions: 0,
       netAnnual: grossAnnual,
+      periodsPerYear,
       perPaycheck: grossAnnual / periodsPerYear,
     };
   }
@@ -336,7 +339,10 @@ export function calculateStreamDeductions(stream, retirement = {}, householdTaxP
     const stateTaxAnnual = (parseFloat(md.stateTax) || 0) * periodsPerYear;
     const ficaAnnual = (parseFloat(md.fica) || 0) * periodsPerYear;
     const k401Annual = (parseFloat(md.retirement) || 0) * periodsPerYear;
-    const otherAnnual = (parseFloat(md.other) || 0) * periodsPerYear;
+    const otherPerCheck = md.otherDeductions?.length
+      ? md.otherDeductions.reduce((sum, d) => sum + (parseFloat(d.amount) || 0), 0)
+      : (parseFloat(md.other) || 0);
+    const otherAnnual = otherPerCheck * periodsPerYear;
     const totalDeductions = fedTaxAnnual + stateTaxAnnual + ficaAnnual + k401Annual + otherAnnual;
     const netAnnual = grossAnnual - totalDeductions;
     const extraWithholdingAnnual = (extraWithholding || 0) * 12;
@@ -347,6 +353,7 @@ export function calculateStreamDeductions(stream, retirement = {}, householdTaxP
       grossAnnual,
       baseAnnual,
       bonusAnnual,
+      periodsPerYear,
       isTaxable: true,
       filingStatus,
       state,
@@ -363,6 +370,7 @@ export function calculateStreamDeductions(stream, retirement = {}, householdTaxP
       federalTaxAfterCredits: fedTaxAnnual,
       stateTax: stateTaxAnnual,
       otherDeductions: otherAnnual,
+      otherDeductionsList: md.otherDeductions || [],
       extraWithholdingAnnual,
       totalDeductions,
       netAnnual,
@@ -410,9 +418,11 @@ export function calculateStreamDeductions(stream, retirement = {}, householdTaxP
     childCredit,
     federalTaxAfterCredits,
     stateTax,
+    otherDeductions: 0,
     extraWithholdingAnnual,
     totalDeductions,
     netAnnual,
+    periodsPerYear,
     perPaycheck: netAnnual / periodsPerYear,
   };
 }
@@ -430,6 +440,7 @@ export function calculateAllStreamDeductions(incomeStreams = [], retirement = {}
     totalStateTax: acc.totalStateTax + r.stateTax,
     totalFICA: acc.totalFICA + r.totalFICA,
     totalK401: acc.totalK401 + r.k401.total,
+    totalOtherDeductions: acc.totalOtherDeductions + (r.otherDeductions || 0),
     totalDeductions: acc.totalDeductions + r.totalDeductions,
     totalNet: acc.totalNet + r.netAnnual,
     totalExtraWithholding: acc.totalExtraWithholding + r.extraWithholdingAnnual,
@@ -440,6 +451,7 @@ export function calculateAllStreamDeductions(incomeStreams = [], retirement = {}
     totalStateTax: 0,
     totalFICA: 0,
     totalK401: 0,
+    totalOtherDeductions: 0,
     totalDeductions: 0,
     totalNet: 0,
     totalExtraWithholding: 0,

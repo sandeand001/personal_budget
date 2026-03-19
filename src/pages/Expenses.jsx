@@ -13,30 +13,45 @@ const COLORS = ['#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6', '#06b6d4', '#10b981'
 // ─── Tax Profile Section ───
 
 function TaxProfileForm({ taxProfile, onSave }) {
-  const [form, setForm] = useState(taxProfile || {
-    filingStatus: 'single',
-    state: 'TX',
-    dependents: 0,
-    w4Allowances: 0,
-    extraWithholding: 0,
-    manualDeductions: { enabled: false, federalTax: '', stateTax: '', fica: '', retirement: '', other: '' },
+  const [form, setForm] = useState(() => {
+    const tp = taxProfile || {};
+    const md = tp.manualDeductions || {};
+    const otherDeductions = md.otherDeductions || (md.other ? [{ name: 'Other', amount: md.other }] : []);
+    return {
+      filingStatus: tp.filingStatus || 'single',
+      state: tp.state || 'TX',
+      dependents: tp.dependents || 0,
+      w4Allowances: tp.w4Allowances || 0,
+      extraWithholding: tp.extraWithholding || 0,
+      manualDeductions: {
+        enabled: md.enabled || false,
+        federalTax: md.federalTax || '',
+        stateTax: md.stateTax || '',
+        fica: md.fica || '',
+        retirement: md.retirement || '',
+        otherDeductions,
+      },
+    };
   });
   const [open, setOpen] = useState(!taxProfile);
 
   function handleSave() {
+    const md = form.manualDeductions;
     onSave({
       filingStatus: form.filingStatus,
       state: form.state,
       dependents: parseInt(form.dependents) || 0,
       w4Allowances: parseInt(form.w4Allowances) || 0,
       extraWithholding: parseFloat(form.extraWithholding) || 0,
-      manualDeductions: form.manualDeductions?.enabled ? {
+      manualDeductions: md?.enabled ? {
         enabled: true,
-        federalTax: parseFloat(form.manualDeductions.federalTax) || 0,
-        stateTax: parseFloat(form.manualDeductions.stateTax) || 0,
-        fica: parseFloat(form.manualDeductions.fica) || 0,
-        retirement: parseFloat(form.manualDeductions.retirement) || 0,
-        other: parseFloat(form.manualDeductions.other) || 0,
+        federalTax: parseFloat(md.federalTax) || 0,
+        stateTax: parseFloat(md.stateTax) || 0,
+        fica: parseFloat(md.fica) || 0,
+        retirement: parseFloat(md.retirement) || 0,
+        otherDeductions: (md.otherDeductions || [])
+          .filter(d => d.name?.trim() || parseFloat(d.amount))
+          .map(d => ({ name: d.name?.trim() || 'Other', amount: parseFloat(d.amount) || 0 })),
       } : { enabled: false },
     });
     setOpen(false);
@@ -129,41 +144,74 @@ function TaxProfileForm({ taxProfile, onSave }) {
               </div>
             </div>
             {form.manualDeductions?.enabled && (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-2">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Federal Tax (per check)</label>
-                  <input type="number" min="0" step="0.01" value={form.manualDeductions.federalTax || ''}
-                    onChange={(e) => updateManual('federalTax', e.target.value)}
-                    placeholder="0.00"
-                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+              <div className="space-y-3 pt-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Federal Tax (per check)</label>
+                    <input type="number" min="0" step="0.01" value={form.manualDeductions.federalTax || ''}
+                      onChange={(e) => updateManual('federalTax', e.target.value)}
+                      placeholder="0.00"
+                      className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">State Tax (per check)</label>
+                    <input type="number" min="0" step="0.01" value={form.manualDeductions.stateTax || ''}
+                      onChange={(e) => updateManual('stateTax', e.target.value)}
+                      placeholder="0.00"
+                      className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">FICA / SS+Medicare (per check)</label>
+                    <input type="number" min="0" step="0.01" value={form.manualDeductions.fica || ''}
+                      onChange={(e) => updateManual('fica', e.target.value)}
+                      placeholder="0.00"
+                      className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">401(k) / Retirement (per check)</label>
+                    <input type="number" min="0" step="0.01" value={form.manualDeductions.retirement || ''}
+                      onChange={(e) => updateManual('retirement', e.target.value)}
+                      placeholder="0.00"
+                      className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+                  </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">State Tax (per check)</label>
-                  <input type="number" min="0" step="0.01" value={form.manualDeductions.stateTax || ''}
-                    onChange={(e) => updateManual('stateTax', e.target.value)}
-                    placeholder="0.00"
-                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">FICA / SS+Medicare (per check)</label>
-                  <input type="number" min="0" step="0.01" value={form.manualDeductions.fica || ''}
-                    onChange={(e) => updateManual('fica', e.target.value)}
-                    placeholder="0.00"
-                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">401(k) / Retirement (per check)</label>
-                  <input type="number" min="0" step="0.01" value={form.manualDeductions.retirement || ''}
-                    onChange={(e) => updateManual('retirement', e.target.value)}
-                    placeholder="0.00"
-                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Other Deductions (per check)</label>
-                  <input type="number" min="0" step="0.01" value={form.manualDeductions.other || ''}
-                    onChange={(e) => updateManual('other', e.target.value)}
-                    placeholder="0.00"
-                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Other Deductions (per check)</label>
+                    <button type="button" onClick={() => updateManual('otherDeductions', [...(form.manualDeductions.otherDeductions || []), { name: '', amount: '' }])}
+                      className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400">
+                      <Plus className="w-3 h-3" /> Add
+                    </button>
+                  </div>
+                  {(form.manualDeductions.otherDeductions || []).map((d, i) => (
+                    <div key={i} className="flex items-center gap-2 mb-2">
+                      <input type="text" value={d.name || ''}
+                        onChange={(e) => {
+                          const updated = [...form.manualDeductions.otherDeductions];
+                          updated[i] = { ...updated[i], name: e.target.value };
+                          updateManual('otherDeductions', updated);
+                        }}
+                        placeholder="Name (e.g., HSA, Dental)"
+                        className="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+                      <input type="number" min="0" step="0.01" value={d.amount || ''}
+                        onChange={(e) => {
+                          const updated = [...form.manualDeductions.otherDeductions];
+                          updated[i] = { ...updated[i], amount: e.target.value };
+                          updateManual('otherDeductions', updated);
+                        }}
+                        placeholder="0.00"
+                        className="w-24 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+                      <button type="button" onClick={() => {
+                        const updated = form.manualDeductions.otherDeductions.filter((_, idx) => idx !== i);
+                        updateManual('otherDeductions', updated);
+                      }} className="text-red-400 hover:text-red-600">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                  {(form.manualDeductions.otherDeductions || []).length === 0 && (
+                    <p className="text-xs text-gray-400">No other deductions. Click "Add" to add one.</p>
+                  )}
                 </div>
               </div>
             )}
@@ -577,12 +625,198 @@ function ExpenseLockInModal({ fixedExpenses, variableExpenses, income, currentBa
   );
 }
 
+// ─── Per-Stream Deduction Card ───
+
+function StreamDeductionCard({ sr, rawStream, onSave }) {
+  const isManualEnabled = rawStream?.manualDeductions?.enabled;
+  const md = rawStream?.manualDeductions || {};
+  const hasAmounts = md.federalTax || md.stateTax || md.fica || md.retirement || md.otherDeductions?.length;
+  const [editOpen, setEditOpen] = useState(isManualEnabled && !hasAmounts);
+  const [form, setForm] = useState({
+    federalTax: md.federalTax || '',
+    stateTax: md.stateTax || '',
+    fica: md.fica || '',
+    retirement: md.retirement || '',
+    otherDeductions: md.otherDeductions?.length ? md.otherDeductions.map(d => ({ ...d })) : [],
+  });
+
+  function handleSave() {
+    onSave({
+      enabled: true,
+      federalTax: parseFloat(form.federalTax) || 0,
+      stateTax: parseFloat(form.stateTax) || 0,
+      fica: parseFloat(form.fica) || 0,
+      retirement: parseFloat(form.retirement) || 0,
+      otherDeductions: form.otherDeductions
+        .filter(d => d.name?.trim() || parseFloat(d.amount))
+        .map(d => ({ name: d.name?.trim() || 'Other', amount: parseFloat(d.amount) || 0 })),
+    });
+    setEditOpen(false);
+  }
+
+  function addOther() {
+    setForm(prev => ({ ...prev, otherDeductions: [...prev.otherDeductions, { name: '', amount: '' }] }));
+  }
+
+  function removeOther(i) {
+    setForm(prev => ({ ...prev, otherDeductions: prev.otherDeductions.filter((_, idx) => idx !== i) }));
+  }
+
+  function updateOther(i, field, value) {
+    setForm(prev => {
+      const updated = [...prev.otherDeductions];
+      updated[i] = { ...updated[i], [field]: value };
+      return { ...prev, otherDeductions: updated };
+    });
+  }
+
+  return (
+    <div className={`bg-white dark:bg-gray-800 rounded-xl border ${isManualEnabled ? 'border-blue-200 dark:border-blue-800' : 'border-gray-200 dark:border-gray-700'} p-5`}>
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <h3 className="font-semibold text-gray-900 dark:text-white">{sr.streamName}</h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            {sr.isManual ? 'Using paystub deductions' : `${FILING_STATUSES.find(f => f.value === sr.filingStatus)?.label} · ${sr.stateName}`}
+            {sr.dependents > 0 && ` · ${sr.dependents} dependent${sr.dependents !== 1 ? 's' : ''}`}
+            {sr.bonusAnnual > 0 && ` · Includes ${formatCurrency(sr.bonusAnnual)}/yr bonus`}
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-lg font-bold text-emerald-600">{formatCurrency(sr.netAnnual / 12)}<span className="text-xs text-gray-400">/mo</span></p>
+          <p className="text-xs text-gray-400">net after deductions</p>
+        </div>
+      </div>
+      <div className="space-y-1.5">
+        <div className="flex justify-between text-sm">
+          <span className="text-gray-600 dark:text-gray-400">Gross Annual {sr.bonusAnnual > 0 ? `(${formatCurrency(sr.baseAnnual)} + ${formatCurrency(sr.bonusAnnual)} bonus)` : ''}</span>
+          <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(sr.grossAnnual)}</span>
+        </div>
+        <div className="flex justify-between text-sm">
+          <span className="text-gray-600 dark:text-gray-400">Federal Tax</span>
+          <span className="font-medium text-red-500">-{formatCurrency(sr.federalTaxAfterCredits)}</span>
+        </div>
+        <div className="flex justify-between text-sm">
+          <span className="text-gray-600 dark:text-gray-400">State Tax ({sr.stateName})</span>
+          <span className="font-medium text-red-500">-{formatCurrency(sr.stateTax)}</span>
+        </div>
+        <div className="flex justify-between text-sm">
+          <span className="text-gray-600 dark:text-gray-400">FICA</span>
+          <span className="font-medium text-red-500">-{formatCurrency(sr.totalFICA)}</span>
+        </div>
+        {sr.k401.total > 0 && (
+          <div className="flex justify-between text-sm">
+            <span className="text-gray-600 dark:text-gray-400">401(k) / Retirement</span>
+            <span className="font-medium text-red-500">-{formatCurrency(sr.k401.total)}</span>
+          </div>
+        )}
+        {sr.otherDeductions > 0 && (
+          sr.otherDeductionsList?.length > 0 ? (
+            sr.otherDeductionsList.map((d, i) => (
+              <div key={i} className="flex justify-between text-sm">
+                <span className="text-gray-600 dark:text-gray-400">{d.name || 'Other'}</span>
+                <span className="font-medium text-red-500">-{formatCurrency((parseFloat(d.amount) || 0) * sr.periodsPerYear)}</span>
+              </div>
+            ))
+          ) : (
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-600 dark:text-gray-400">Other Deductions</span>
+              <span className="font-medium text-red-500">-{formatCurrency(sr.otherDeductions)}</span>
+            </div>
+          )
+        )}
+        <hr className="border-gray-100 dark:border-gray-700" />
+        <div className="flex justify-between text-sm font-semibold">
+          <span className="text-gray-900 dark:text-white">Net Annual</span>
+          <span className="text-emerald-600">{formatCurrency(sr.netAnnual)}</span>
+        </div>
+      </div>
+
+      {/* Manual deduction editor */}
+      {isManualEnabled && (
+        <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
+          <button onClick={() => setEditOpen(!editOpen)}
+            className="flex items-center gap-2 text-sm font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">
+            <Settings className="w-4 h-4" />
+            {editOpen ? 'Hide' : (hasAmounts ? 'Edit' : 'Set Up')} Per-Check Deductions
+            {editOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          </button>
+          {editOpen && (
+            <div className="mt-3 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Federal Tax</label>
+                  <input type="number" min="0" step="0.01" value={form.federalTax}
+                    onChange={(e) => setForm({ ...form, federalTax: e.target.value })}
+                    placeholder="0.00"
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">State Tax</label>
+                  <input type="number" min="0" step="0.01" value={form.stateTax}
+                    onChange={(e) => setForm({ ...form, stateTax: e.target.value })}
+                    placeholder="0.00"
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">FICA / SS+Medicare</label>
+                  <input type="number" min="0" step="0.01" value={form.fica}
+                    onChange={(e) => setForm({ ...form, fica: e.target.value })}
+                    placeholder="0.00"
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">401(k) / Retirement</label>
+                  <input type="number" min="0" step="0.01" value={form.retirement}
+                    onChange={(e) => setForm({ ...form, retirement: e.target.value })}
+                    placeholder="0.00"
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+                </div>
+              </div>
+              {/* Other Deductions */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Other Deductions (per check)</label>
+                  <button type="button" onClick={addOther}
+                    className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400">
+                    <Plus className="w-3 h-3" /> Add
+                  </button>
+                </div>
+                {form.otherDeductions.map((d, i) => (
+                  <div key={i} className="flex items-center gap-2 mb-2">
+                    <input type="text" value={d.name || ''} onChange={(e) => updateOther(i, 'name', e.target.value)}
+                      placeholder="Name (e.g., HSA, Dental)"
+                      className="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+                    <input type="number" min="0" step="0.01" value={d.amount || ''} onChange={(e) => updateOther(i, 'amount', e.target.value)}
+                      placeholder="0.00"
+                      className="w-24 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+                    <button type="button" onClick={() => removeOther(i)} className="text-red-400 hover:text-red-600">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+                {form.otherDeductions.length === 0 && (
+                  <p className="text-xs text-gray-400">No other deductions. Click "Add" to add one.</p>
+                )}
+              </div>
+              <p className="text-xs text-gray-400">All amounts are per paycheck. They will be annualized based on your pay frequency.</p>
+              <button onClick={handleSave}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition">
+                Save Deductions
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Expenses Page ───
 
 export default function Expenses() {
   const { isSimpleMode } = useAppMode();
   usePrivacy();
-  const { streams } = useIncomeStreams();
+  const { streams, updateStream } = useIncomeStreams();
   const { retirement, saveRetirement } = useRetirement();
   const { profile: taxProfile, saveTaxProfile } = useTaxProfile();
   const { expenses, addExpense, updateExpense, removeExpense } = useExpenses();
@@ -640,6 +874,7 @@ export default function Expenses() {
       stateTax: t.totalStateTax,
       totalFICA: t.totalFICA,
       k401: { total: t.totalK401 },
+      totalOtherDeductions: t.totalOtherDeductions || 0,
       totalDeductions: t.totalDeductions,
       netAnnual: t.totalNet,
       extraWithholdingAnnual: t.totalExtraWithholding,
@@ -669,6 +904,7 @@ export default function Expenses() {
     { name: 'State Tax', value: deductions.stateTax },
     { name: 'Social Security & Medicare', value: deductions.totalFICA },
     { name: '401(k)', value: deductions.k401.total },
+    { name: 'Other Deductions', value: deductions.totalOtherDeductions },
     { name: 'Fixed Expenses', value: totalFixedAnnual },
     { name: 'Variable Expenses', value: totalVariableAnnual },
   ].filter((d) => d.value > 0);
@@ -896,51 +1132,12 @@ export default function Expenses() {
           {streamDeductions.streams.filter(s => s.isTaxable).length > 0 && (
             <div className="space-y-3">
               {streamDeductions.streams.filter(s => s.isTaxable).map((sr) => (
-                <div key={sr.streamId} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <div>
-                      <h3 className="font-semibold text-gray-900 dark:text-white">{sr.streamName}</h3>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
-                        {sr.isManual ? 'Using paystub deductions' : `${FILING_STATUSES.find(f => f.value === sr.filingStatus)?.label} · ${sr.stateName}`}
-                        {sr.dependents > 0 && ` · ${sr.dependents} dependent${sr.dependents !== 1 ? 's' : ''}`}
-                        {sr.bonusAnnual > 0 && ` · Includes ${formatCurrency(sr.bonusAnnual)}/yr bonus`}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-lg font-bold text-emerald-600">{formatCurrency(sr.netAnnual / 12)}<span className="text-xs text-gray-400">/mo</span></p>
-                      <p className="text-xs text-gray-400">net after deductions</p>
-                    </div>
-                  </div>
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600 dark:text-gray-400">Gross Annual {sr.bonusAnnual > 0 ? `(${formatCurrency(sr.baseAnnual)} + ${formatCurrency(sr.bonusAnnual)} bonus)` : ''}</span>
-                      <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(sr.grossAnnual)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600 dark:text-gray-400">Federal Tax</span>
-                      <span className="font-medium text-red-500">-{formatCurrency(sr.federalTaxAfterCredits)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600 dark:text-gray-400">State Tax ({sr.stateName})</span>
-                      <span className="font-medium text-red-500">-{formatCurrency(sr.stateTax)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600 dark:text-gray-400">FICA</span>
-                      <span className="font-medium text-red-500">-{formatCurrency(sr.totalFICA)}</span>
-                    </div>
-                    {sr.k401.total > 0 && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-600 dark:text-gray-400">401(k)</span>
-                        <span className="font-medium text-red-500">-{formatCurrency(sr.k401.total)}</span>
-                      </div>
-                    )}
-                    <hr className="border-gray-100 dark:border-gray-700" />
-                    <div className="flex justify-between text-sm font-semibold">
-                      <span className="text-gray-900 dark:text-white">Net Annual</span>
-                      <span className="text-emerald-600">{formatCurrency(sr.netAnnual)}</span>
-                    </div>
-                  </div>
-                </div>
+                <StreamDeductionCard
+                  key={sr.streamId}
+                  sr={sr}
+                  rawStream={streams.find(s => s.id === sr.streamId)}
+                  onSave={(md) => updateStream(sr.streamId, { manualDeductions: md })}
+                />
               ))}
             </div>
           )}
@@ -969,6 +1166,12 @@ export default function Expenses() {
                 <span className="text-gray-600 dark:text-gray-400">Total 401(k)</span>
                 <span className="font-medium text-red-500">-{formatCurrency(deductions.k401.total)}</span>
               </div>
+              {deductions.totalOtherDeductions > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600 dark:text-gray-400">Total Other Deductions</span>
+                  <span className="font-medium text-red-500">-{formatCurrency(deductions.totalOtherDeductions)}</span>
+                </div>
+              )}
               <hr className="border-gray-100 dark:border-gray-700" />
               <div className="flex justify-between text-sm font-semibold">
                 <span className="text-gray-900 dark:text-white">Total Deductions</span>
