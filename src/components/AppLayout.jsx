@@ -15,6 +15,7 @@ import {
   User,
   Eye,
   EyeOff,
+  CalendarRange,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { usePrivacy } from '../contexts/PrivacyContext';
@@ -23,7 +24,8 @@ const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/income', label: 'Income', icon: DollarSign },
   { to: '/expenses', label: 'Expenses', icon: Receipt },
-  { to: '/budget', label: 'Budget', icon: Wallet },
+  { to: '/spending', label: 'Spending Money', icon: Wallet },
+  { to: '/annual', label: 'Annual Overview', icon: CalendarRange },
   { to: '/vacations', label: 'Vacations', icon: Plane },
   { to: '/debt', label: 'Debt', icon: Landmark },
   { to: '/settings', label: 'Settings', icon: Settings },

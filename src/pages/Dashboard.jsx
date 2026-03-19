@@ -14,10 +14,10 @@ import {
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useAppMode } from '../contexts/AppModeContext';
-import { useIncomeStreams, useTaxProfile, useRetirement, useExpenses, useFixedExpenses, useBudgetProfiles, useVacations, useDebts } from '../hooks/useFirestore';
+import { useIncomeStreams, useRetirement, useExpenses, useFixedExpenses, useBudgetProfiles, useVacations, useDebts } from '../hooks/useFirestore';
 import { FREQUENCIES, toAnnual, toMonthly, formatCurrency, getPeriodsPerYear } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
-import { calculateAllDeductions } from '../lib/taxEngine';
+import { calculateAllStreamDeductions } from '../lib/taxEngine';
 import { cn } from '../lib/utils';
 
 function SummaryCard({ title, value, subtitle, icon: Icon, color, to }) {
@@ -49,7 +49,6 @@ export default function Dashboard() {
   const firstName = user?.displayName?.split(' ')[0] || 'there';
 
   const { streams } = useIncomeStreams();
-  const { profile: taxProfile } = useTaxProfile();
   const { retirement } = useRetirement();
   const { expenses: variableExpenses } = useExpenses();
   const { expenses: fixedExpenses } = useFixedExpenses();
@@ -57,25 +56,28 @@ export default function Dashboard() {
   const { vacations } = useVacations();
   const { debts } = useDebts();
 
-  // Income totals
+  // Income totals (includes bonus)
   const totalGrossMonthly = useMemo(
-    () => streams.reduce((s, i) => s + toMonthly(i.amount, i.frequency), 0),
+    () => streams.reduce((s, i) => s + toMonthly(i.amount, i.frequency) + toMonthly(i.bonusAmount || 0, i.frequency), 0),
     [streams]
   );
   const totalGrossAnnual = totalGrossMonthly * 12;
 
-  // Tax deductions
+  // Tax deductions (per-stream)
   const deductions = useMemo(() => {
     const preparedStreams = streams.map((s) => ({
       ...s,
       periodsPerYear: getPeriodsPerYear(s.frequency),
     }));
-    return calculateAllDeductions({
-      incomeStreams: preparedStreams,
-      taxProfile: taxProfile || {},
-      retirement: retirement || {},
-    });
-  }, [streams, taxProfile, retirement]);
+    const result = calculateAllStreamDeductions(preparedStreams, retirement || {});
+    const t = result.totals;
+    return {
+      totalGrossAnnual: t.totalGrossAnnual,
+      totalDeductions: t.totalDeductions,
+      netAnnual: t.totalNet,
+      refundOrOwed: t.totalExtraWithholding,
+    };
+  }, [streams, retirement]);
 
   const variableAnnual = useMemo(
     () => variableExpenses.reduce((s, e) => s + toAnnual(e.amount, e.frequency), 0),
@@ -174,7 +176,7 @@ export default function Dashboard() {
               <>
                 <p>1. <strong>Income</strong> — Enter your take-home (net) pay from each source</p>
                 <p>2. <strong>Expenses</strong> — Add the bills and expenses you actually pay</p>
-                <p>3. <strong>Budget</strong> — Create a spending budget and track your purchases</p>
+                <p>3. <strong>Spending Money</strong> — Create a spending budget and track your purchases</p>
                 <p>4. <strong>Vacations</strong> — Plan trips, track costs, and set savings goals</p>
                 <p>5. <strong>Debt</strong> — Track loans and plan repayment strategies</p>
               </>
@@ -182,7 +184,7 @@ export default function Dashboard() {
               <>
                 <p>1. <strong>Income</strong> — Add your income streams (salary, side jobs, VA disability, etc.)</p>
                 <p>2. <strong>Expenses</strong> — Set up your tax profile and add recurring expenses</p>
-                <p>3. <strong>Budget</strong> — Create a spending budget and track your purchases</p>
+                <p>3. <strong>Spending Money</strong> — Create a spending budget and track your purchases</p>
                 <p>4. <strong>Vacations</strong> — Plan trips, track costs, and set savings goals</p>
                 <p>5. <strong>Debt</strong> — Track loans and plan repayment strategies</p>
                 <p>6. <strong>Settings</strong> — Invite household members to share your data</p>
@@ -240,12 +242,12 @@ export default function Dashboard() {
           to="/expenses"
         />
         <SummaryCard
-          title="Budget Total"
+          title="Spending Money"
           value={formatCurrency(totalBudgetMonthly)}
           subtitle={budgetProfiles.length > 0 ? `${budgetProfiles.length} profile${budgetProfiles.length !== 1 ? 's' : ''}` : 'No budget set'}
           icon={Wallet}
           color="bg-purple-500"
-          to="/budget"
+          to="/spending"
         />
         <SummaryCard
           title="Total Debt"

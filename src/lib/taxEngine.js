@@ -218,13 +218,14 @@ export function calculateAllDeductions({
 
   for (const s of incomeStreams) {
     const annual = s.amount * (s.periodsPerYear || 12);
-    totalGrossAnnual += annual;
+    const bonusAnnual = (s.bonusAmount || 0) * (s.bonusPeriodsPerYear || s.periodsPerYear || 12);
+    totalGrossAnnual += annual + bonusAnnual;
     if (s.isTaxable) {
-      totalTaxableAnnual += annual;
+      totalTaxableAnnual += annual + bonusAnnual;
       if (s.type === '1099') {
-        selfEmployTaxableAnnual += annual;
+        selfEmployTaxableAnnual += annual + bonusAnnual;
       } else {
-        w2TaxableAnnual += annual;
+        w2TaxableAnnual += annual + bonusAnnual;
       }
     }
   }
@@ -284,4 +285,120 @@ export function calculateAllDeductions({
     totalDeductions: federalTaxAfterCredits + stateTax + totalFICA + k401.total,
     netAnnual: totalGrossAnnual - (federalTaxAfterCredits + stateTax + totalFICA + k401.total),
   };
+}
+
+/**
+ * Per-stream tax calculation — calculates deductions for a single income stream
+ * using its own tax profile. Used when each income source has individual tax settings.
+ */
+export function calculateStreamDeductions(stream, retirement = {}) {
+  const taxProfile = stream.taxProfile || {};
+  const { filingStatus = 'single', state = 'TX', dependents = 0, extraWithholding = 0 } = taxProfile;
+  const { traditionalPct = 0, rothPct = 0 } = retirement;
+
+  const periodsPerYear = stream.periodsPerYear || 12;
+  const baseAnnual = stream.amount * periodsPerYear;
+  const bonusAnnual = (stream.bonusAmount || 0) * (stream.bonusPeriodsPerYear || periodsPerYear);
+  const grossAnnual = baseAnnual + bonusAnnual;
+
+  if (!stream.isTaxable) {
+    return {
+      streamId: stream.id,
+      streamName: stream.name,
+      grossAnnual,
+      baseAnnual,
+      bonusAnnual,
+      isTaxable: false,
+      federalTax: 0,
+      stateTax: 0,
+      stateName: STATE_TAX_DATA[state]?.name || state,
+      totalFICA: 0,
+      k401: { traditional: 0, roth: 0, total: 0 },
+      childCredit: 0,
+      federalTaxAfterCredits: 0,
+      extraWithholdingAnnual: 0,
+      totalDeductions: 0,
+      netAnnual: grossAnnual,
+      perPaycheck: grossAnnual / periodsPerYear,
+    };
+  }
+
+  const isW2 = stream.type !== '1099';
+
+  // 401(k) — only for W-2
+  const k401 = isW2 ? calculate401k(grossAnnual, traditionalPct, rothPct) : { traditional: 0, roth: 0, total: 0 };
+
+  // FICA
+  const fica = calculateFICA(grossAnnual, isW2);
+
+  // Adjusted taxable income
+  const adjustedTaxable = grossAnnual - k401.traditional - (fica.deductibleHalf || 0);
+
+  // Federal tax
+  const federalTax = calculateFederalTax(adjustedTaxable, filingStatus);
+  const childCredit = calculateChildTaxCredit(dependents, federalTax);
+  const federalTaxAfterCredits = federalTax - childCredit;
+
+  // State tax
+  const stateTax = calculateStateTax(adjustedTaxable, state, filingStatus);
+
+  const extraWithholdingAnnual = (extraWithholding || 0) * 12;
+  const totalDeductions = federalTaxAfterCredits + stateTax + fica.total + k401.total;
+  const netAnnual = grossAnnual - totalDeductions;
+
+  return {
+    streamId: stream.id,
+    streamName: stream.name,
+    grossAnnual,
+    baseAnnual,
+    bonusAnnual,
+    isTaxable: true,
+    filingStatus,
+    state,
+    stateName: STATE_TAX_DATA[state]?.name || state,
+    dependents,
+    standardDeduction: STANDARD_DEDUCTION[filingStatus] || STANDARD_DEDUCTION.single,
+    k401,
+    fica,
+    totalFICA: fica.total,
+    federalTax,
+    childCredit,
+    federalTaxAfterCredits,
+    stateTax,
+    extraWithholdingAnnual,
+    totalDeductions,
+    netAnnual,
+    perPaycheck: netAnnual / periodsPerYear,
+  };
+}
+
+/**
+ * Calculate deductions for all streams individually, then aggregate.
+ */
+export function calculateAllStreamDeductions(incomeStreams = [], retirement = {}) {
+  const streamResults = incomeStreams.map((s) => calculateStreamDeductions(s, retirement));
+
+  const totals = streamResults.reduce((acc, r) => ({
+    totalGrossAnnual: acc.totalGrossAnnual + r.grossAnnual,
+    totalBonusAnnual: acc.totalBonusAnnual + r.bonusAnnual,
+    totalFederalTax: acc.totalFederalTax + r.federalTaxAfterCredits,
+    totalStateTax: acc.totalStateTax + r.stateTax,
+    totalFICA: acc.totalFICA + r.totalFICA,
+    totalK401: acc.totalK401 + r.k401.total,
+    totalDeductions: acc.totalDeductions + r.totalDeductions,
+    totalNet: acc.totalNet + r.netAnnual,
+    totalExtraWithholding: acc.totalExtraWithholding + r.extraWithholdingAnnual,
+  }), {
+    totalGrossAnnual: 0,
+    totalBonusAnnual: 0,
+    totalFederalTax: 0,
+    totalStateTax: 0,
+    totalFICA: 0,
+    totalK401: 0,
+    totalDeductions: 0,
+    totalNet: 0,
+    totalExtraWithholding: 0,
+  });
+
+  return { streams: streamResults, totals };
 }

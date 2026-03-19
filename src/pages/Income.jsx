@@ -1,9 +1,10 @@
 ﻿import { useState, useMemo } from 'react';
-import { DollarSign, Plus, Trash2, Pencil, Info, X, Lock, Unlock, Check } from 'lucide-react';
+import { DollarSign, Plus, Trash2, Pencil, Info, X, Lock, Unlock, Check, ChevronDown, ChevronUp } from 'lucide-react';
 import { useIncomeStreams, useMonthlyIncomeLog } from '../hooks/useFirestore';
 import { useAppMode } from '../contexts/AppModeContext';
 import { FREQUENCIES, NEEDS_MONTH_PICKER, MONTH_NAMES, MONTH_NAMES_FULL, defaultMonthsForFrequency, getAmountForMonth, toMonthly, toAnnual, formatCurrency, formatCurrencyShort } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
+import { STATES, FILING_STATUSES } from '../lib/taxEngine';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 
 const INCOME_TYPES = [
@@ -21,7 +22,10 @@ function IncomeModal({ onClose, onSave, initial, isSimpleMode }) {
     frequency: 'monthly',
     isTaxable: true,
     applicableMonths: [],
+    bonusAmount: '',
+    taxProfile: { filingStatus: 'single', state: 'TX', dependents: 0, extraWithholding: 0 },
   });
+  const [showTaxProfile, setShowTaxProfile] = useState(!!(initial?.taxProfile?.filingStatus));
 
   function handleFrequencyChange(freq) {
     const needsPicker = NEEDS_MONTH_PICKER.includes(freq);
@@ -42,15 +46,30 @@ function IncomeModal({ onClose, onSave, initial, isSimpleMode }) {
     });
   }
 
+  function updateTaxProfile(field, value) {
+    setForm({ ...form, taxProfile: { ...form.taxProfile, [field]: value } });
+  }
+
   function handleSubmit(e) {
     e.preventDefault();
-    onSave({ ...form, amount: parseFloat(form.amount) || 0 });
+    const data = {
+      ...form,
+      amount: parseFloat(form.amount) || 0,
+      bonusAmount: parseFloat(form.bonusAmount) || 0,
+      taxProfile: form.isTaxable && !isSimpleMode ? {
+        filingStatus: form.taxProfile?.filingStatus || 'single',
+        state: form.taxProfile?.state || 'TX',
+        dependents: parseInt(form.taxProfile?.dependents) || 0,
+        extraWithholding: parseFloat(form.taxProfile?.extraWithholding) || 0,
+      } : null,
+    };
+    onSave(data);
     onClose();
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-md p-6 relative">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-lg p-6 relative max-h-[90vh] overflow-y-auto">
         <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
           <X className="w-5 h-5" />
         </button>
@@ -120,6 +139,63 @@ function IncomeModal({ onClose, onSave, initial, isSimpleMode }) {
               <span className="text-sm text-gray-700 dark:text-gray-300">
                 {form.isTaxable ? 'Taxable income' : 'Non-taxable (e.g., VA disability)'}
               </span>
+            </div>
+          )}
+          {/* Bonus */}
+          {!isSimpleMode && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Bonus Amount ($) <span className="text-gray-400 font-normal">— optional</span></label>
+              <input
+                type="number" min="0" step="0.01" value={form.bonusAmount}
+                onChange={(e) => setForm({ ...form, bonusAmount: e.target.value })}
+                placeholder="0.00 — per paycheck bonus"
+                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
+              />
+              <p className="text-xs text-gray-400 mt-1">If you get a bonus on the same pay stub, enter the per-paycheck bonus amount. Tax is calculated on combined pay + bonus.</p>
+            </div>
+          )}
+          {/* Per-Stream Tax Profile */}
+          {!isSimpleMode && form.isTaxable && (
+            <div className="border border-gray-200 dark:border-gray-600 rounded-lg overflow-hidden">
+              <button type="button" onClick={() => setShowTaxProfile(!showTaxProfile)}
+                className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-700/50 text-left">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Tax Profile</span>
+                {showTaxProfile ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+              </button>
+              {showTaxProfile && (
+                <div className="px-4 pb-4 pt-3 space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Filing Status</label>
+                      <select value={form.taxProfile?.filingStatus || 'single'}
+                        onChange={(e) => updateTaxProfile('filingStatus', e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm">
+                        {FILING_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">State</label>
+                      <select value={form.taxProfile?.state || 'TX'}
+                        onChange={(e) => updateTaxProfile('state', e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm">
+                        {STATES.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Dependents</label>
+                      <input type="number" min="0" value={form.taxProfile?.dependents || 0}
+                        onChange={(e) => updateTaxProfile('dependents', e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Extra W/H ($/mo)</label>
+                      <input type="number" min="0" step="0.01" value={form.taxProfile?.extraWithholding || 0}
+                        onChange={(e) => updateTaxProfile('extraWithholding', e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
           <div className="flex gap-3 pt-2">
@@ -412,7 +488,17 @@ export default function Income() {
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                   {streams.map((s) => (
                     <tr key={s.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                      <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{s.name}</td>
+                      <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">
+                        {s.name}
+                        {!isSimpleMode && s.bonusAmount > 0 && (
+                          <span className="ml-2 text-xs text-amber-600 dark:text-amber-400">+{formatCurrency(s.bonusAmount)} bonus</span>
+                        )}
+                        {!isSimpleMode && s.isTaxable && s.taxProfile && (
+                          <p className="text-[10px] text-gray-400 mt-0.5">
+                            {FILING_STATUSES.find(f => f.value === s.taxProfile.filingStatus)?.label || 'Single'} · {STATES.find(st => st.code === s.taxProfile.state)?.name || s.taxProfile.state}
+                          </p>
+                        )}
+                      </td>
                       {!isSimpleMode && (
                         <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
                           <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${s.type === 'w2' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'}`}>

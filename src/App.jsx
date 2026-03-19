@@ -5,7 +5,8 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Income from './pages/Income';
 import Expenses from './pages/Expenses';
-import Budget from './pages/Budget';
+import SpendingMoney from './pages/SpendingMoney';
+import AnnualOverview from './pages/AnnualOverview';
 import Vacations from './pages/Vacations';
 import Debt from './pages/Debt';
 import HouseholdSettings from './pages/HouseholdSettings';
@@ -24,7 +25,8 @@ export default function App() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/income" element={<Income />} />
         <Route path="/expenses" element={<Expenses />} />
-        <Route path="/budget" element={<Budget />} />
+        <Route path="/spending" element={<SpendingMoney />} />
+        <Route path="/annual" element={<AnnualOverview />} />
         <Route path="/vacations" element={<Vacations />} />
         <Route path="/debt" element={<Debt />} />
         <Route path="/settings" element={<HouseholdSettings />} />

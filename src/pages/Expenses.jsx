@@ -1,91 +1,14 @@
 import { useState, useMemo } from 'react';
 import { Receipt, Plus, Trash2, Pencil, Info, Calculator, X, Settings, ChevronDown, ChevronUp, Lock, Unlock, DollarSign, Banknote } from 'lucide-react';
-import { useIncomeStreams, useTaxProfile, useRetirement, useExpenses, useFixedExpenses, useMonthlyIncomeLog, useMonthlyExpenseLog, useCurrentBalance, useBudgetProfiles } from '../hooks/useFirestore';
+import { useIncomeStreams, useRetirement, useExpenses, useFixedExpenses, useMonthlyIncomeLog, useMonthlyExpenseLog, useCurrentBalance, useBudgetProfiles } from '../hooks/useFirestore';
 import { FREQUENCIES, NEEDS_MONTH_PICKER, MONTH_NAMES, MONTH_NAMES_FULL, defaultMonthsForFrequency, getAmountForMonth, toAnnual, toMonthly, formatCurrency, formatCurrencyShort, getPeriodsPerYear } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
-import { calculateAllDeductions, STATES, FILING_STATUSES } from '../lib/taxEngine';
+import { calculateAllStreamDeductions, FILING_STATUSES } from '../lib/taxEngine';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { useAppMode } from '../contexts/AppModeContext';
 import { cn } from '../lib/utils';
 
 const COLORS = ['#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6', '#06b6d4', '#10b981', '#ec4899', '#84cc16'];
-
-// ─── Tax Profile Section ───
-
-function TaxProfileForm({ profile, onSave }) {
-  const [form, setForm] = useState(profile || {
-    filingStatus: 'single',
-    state: 'TX',
-    dependents: 0,
-    extraWithholding: 0,
-  });
-  const [open, setOpen] = useState(!profile);
-
-  function handleSave() {
-    onSave({
-      ...form,
-      dependents: parseInt(form.dependents) || 0,
-      extraWithholding: parseFloat(form.extraWithholding) || 0,
-    });
-    setOpen(false);
-  }
-
-  return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
-      <button onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-5 py-4 text-left">
-        <div className="flex items-center gap-3">
-          <Settings className="w-5 h-5 text-gray-400" />
-          <div>
-            <h3 className="font-semibold text-gray-900 dark:text-white text-sm">Tax Profile</h3>
-            {profile && (
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                {FILING_STATUSES.find(f => f.value === profile.filingStatus)?.label} &middot; {STATES.find(s => s.code === profile.state)?.name} &middot; {profile.dependents} dependent{profile.dependents !== 1 ? 's' : ''}
-              </p>
-            )}
-          </div>
-        </div>
-        {open ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
-      </button>
-      {open && (
-        <div className="px-5 pb-5 border-t border-gray-100 dark:border-gray-700 pt-4 space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Filing Status</label>
-              <select value={form.filingStatus} onChange={(e) => setForm({ ...form, filingStatus: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm">
-                {FILING_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">State</label>
-              <select value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm">
-                {STATES.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Dependents (children)</label>
-              <input type="number" min="0" value={form.dependents}
-                onChange={(e) => setForm({ ...form, dependents: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Extra Withholding ($/mo)</label>
-              <input type="number" min="0" step="0.01" value={form.extraWithholding}
-                onChange={(e) => setForm({ ...form, extraWithholding: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
-            </div>
-          </div>
-          <button onClick={handleSave}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition">
-            Save Tax Profile
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ─── Retirement Section ───
 
@@ -468,7 +391,6 @@ export default function Expenses() {
   const { isSimpleMode } = useAppMode();
   usePrivacy();
   const { streams } = useIncomeStreams();
-  const { profile, saveTaxProfile } = useTaxProfile();
   const { retirement, saveRetirement } = useRetirement();
   const { expenses, addExpense, updateExpense, removeExpense } = useExpenses();
   const { expenses: fixedExpensesList, addExpense: addFixed, updateExpense: updateFixed, removeExpense: removeFixed } = useFixedExpenses();
@@ -506,11 +428,27 @@ export default function Expenses() {
     periodsPerYear: getPeriodsPerYear(s.frequency),
   }));
 
-  const deductions = useMemo(() => calculateAllDeductions({
-    incomeStreams: preparedStreams,
-    taxProfile: profile || {},
-    retirement: retirement || {},
-  }), [preparedStreams, profile, retirement]);
+  // Per-stream tax calculations
+  const streamDeductions = useMemo(() => calculateAllStreamDeductions(
+    preparedStreams,
+    retirement || {},
+  ), [preparedStreams, retirement]);
+
+  // Backwards-compatible deductions object for charts and totals
+  const deductions = useMemo(() => {
+    const t = streamDeductions.totals;
+    return {
+      totalGrossAnnual: t.totalGrossAnnual,
+      totalTaxableAnnual: streamDeductions.streams.filter(s => s.isTaxable).reduce((a, s) => a + s.grossAnnual, 0),
+      federalTaxAfterCredits: t.totalFederalTax,
+      stateTax: t.totalStateTax,
+      totalFICA: t.totalFICA,
+      k401: { total: t.totalK401 },
+      totalDeductions: t.totalDeductions,
+      netAnnual: t.totalNet,
+      extraWithholdingAnnual: t.totalExtraWithholding,
+    };
+  }, [streamDeductions]);
 
   // Fixed expenses totals (monthly)
   const totalFixedMonthly = fixedExpensesList.reduce((sum, e) => sum + toMonthly(e.amount, e.frequency), 0);
@@ -535,7 +473,7 @@ export default function Expenses() {
   // Chart data
   const deductionPieData = [
     { name: 'Federal Tax', value: deductions.federalTaxAfterCredits },
-    { name: `State Tax (${deductions.stateName})`, value: deductions.stateTax },
+    { name: 'State Tax', value: deductions.stateTax },
     { name: 'Social Security & Medicare', value: deductions.totalFICA },
     { name: '401(k)', value: deductions.k401.total },
     { name: 'Fixed Expenses', value: totalFixedAnnual },
@@ -738,7 +676,7 @@ export default function Expenses() {
               <Calculator className="w-5 h-5" />
               <h2 className="text-lg font-semibold">Projected Tax Refund / Amount Owed</h2>
             </div>
-            {profile ? (
+            {streams.some(s => s.isTaxable && s.taxProfile) ? (
               <>
                 <p className="text-3xl font-bold">
                   {refundAmount >= 0 ? '+' : ''}{formatCurrency(refundAmount)}
@@ -750,64 +688,99 @@ export default function Expenses() {
             ) : (
               <>
                 <p className="text-3xl font-bold">$0.00</p>
-                <p className="text-white/80 text-sm mt-1">Set up your tax profile to see your estimate</p>
+                <p className="text-white/80 text-sm mt-1">Set up tax profiles on each income stream to see estimates</p>
               </>
             )}
           </div>
 
-          {/* Tax Profile & Retirement Settings */}
-          <div className="space-y-3">
-            <TaxProfileForm profile={profile} onSave={saveTaxProfile} />
-            <RetirementForm retirement={retirement} onSave={saveRetirement} />
-          </div>
+          {/* Retirement Settings */}
+          <RetirementForm retirement={retirement} onSave={saveRetirement} />
 
-          {/* Auto-Calculated Deductions Breakdown */}
+          {/* Per-Stream Tax Breakdown */}
+          {streamDeductions.streams.filter(s => s.isTaxable).length > 0 && (
+            <div className="space-y-3">
+              {streamDeductions.streams.filter(s => s.isTaxable).map((sr) => (
+                <div key={sr.streamId} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <h3 className="font-semibold text-gray-900 dark:text-white">{sr.streamName}</h3>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {FILING_STATUSES.find(f => f.value === sr.filingStatus)?.label} · {sr.stateName}
+                        {sr.dependents > 0 && ` · ${sr.dependents} dependent${sr.dependents !== 1 ? 's' : ''}`}
+                        {sr.bonusAnnual > 0 && ` · Includes ${formatCurrency(sr.bonusAnnual)}/yr bonus`}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-lg font-bold text-emerald-600">{formatCurrency(sr.netAnnual / 12)}<span className="text-xs text-gray-400">/mo</span></p>
+                      <p className="text-xs text-gray-400">net after deductions</p>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600 dark:text-gray-400">Gross Annual {sr.bonusAnnual > 0 ? `(${formatCurrency(sr.baseAnnual)} + ${formatCurrency(sr.bonusAnnual)} bonus)` : ''}</span>
+                      <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(sr.grossAnnual)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600 dark:text-gray-400">Federal Tax</span>
+                      <span className="font-medium text-red-500">-{formatCurrency(sr.federalTaxAfterCredits)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600 dark:text-gray-400">State Tax ({sr.stateName})</span>
+                      <span className="font-medium text-red-500">-{formatCurrency(sr.stateTax)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600 dark:text-gray-400">FICA</span>
+                      <span className="font-medium text-red-500">-{formatCurrency(sr.totalFICA)}</span>
+                    </div>
+                    {sr.k401.total > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600 dark:text-gray-400">401(k)</span>
+                        <span className="font-medium text-red-500">-{formatCurrency(sr.k401.total)}</span>
+                      </div>
+                    )}
+                    <hr className="border-gray-100 dark:border-gray-700" />
+                    <div className="flex justify-between text-sm font-semibold">
+                      <span className="text-gray-900 dark:text-white">Net Annual</span>
+                      <span className="text-emerald-600">{formatCurrency(sr.netAnnual)}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Aggregate Deductions Summary */}
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
-            <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Auto-Calculated Deductions (Annual)</h3>
+            <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Total Deductions Summary (Annual)</h3>
             <div className="space-y-3">
               <div className="flex justify-between text-sm">
-                <span className="text-gray-600 dark:text-gray-400">Total Taxable Income</span>
-                <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(deductions.totalTaxableAnnual)}</span>
+                <span className="text-gray-600 dark:text-gray-400">Total Gross Income</span>
+                <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(deductions.totalGrossAnnual)}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-gray-600 dark:text-gray-400">Standard Deduction</span>
-                <span className="font-medium text-red-500">-{formatCurrency(deductions.standardDeduction)}</span>
-              </div>
-              <hr className="border-gray-100 dark:border-gray-700" />
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600 dark:text-gray-400">Federal Income Tax</span>
-                <span className="font-medium text-red-500">-{formatCurrency(deductions.federalTax)}</span>
-              </div>
-              {deductions.childCredit > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600 dark:text-gray-400 pl-4">Child Tax Credit ({(profile?.dependents || 0)} child{(profile?.dependents || 0) !== 1 ? 'ren' : ''})</span>
-                  <span className="font-medium text-emerald-500">+{formatCurrency(deductions.childCredit)}</span>
-                </div>
-              )}
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600 dark:text-gray-400">Federal Tax After Credits</span>
+                <span className="text-gray-600 dark:text-gray-400">Total Federal Tax</span>
                 <span className="font-medium text-red-500">-{formatCurrency(deductions.federalTaxAfterCredits)}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-gray-600 dark:text-gray-400">State Tax ({deductions.stateName})</span>
+                <span className="text-gray-600 dark:text-gray-400">Total State Tax</span>
                 <span className="font-medium text-red-500">-{formatCurrency(deductions.stateTax)}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-gray-600 dark:text-gray-400">FICA (Social Security + Medicare)</span>
+                <span className="text-gray-600 dark:text-gray-400">Total FICA</span>
                 <span className="font-medium text-red-500">-{formatCurrency(deductions.totalFICA)}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-gray-600 dark:text-gray-400">401(k) Traditional</span>
-                <span className="font-medium text-red-500">-{formatCurrency(deductions.k401.traditional)}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600 dark:text-gray-400">401(k) Roth</span>
-                <span className="font-medium text-red-500">-{formatCurrency(deductions.k401.roth)}</span>
+                <span className="text-gray-600 dark:text-gray-400">Total 401(k)</span>
+                <span className="font-medium text-red-500">-{formatCurrency(deductions.k401.total)}</span>
               </div>
               <hr className="border-gray-100 dark:border-gray-700" />
               <div className="flex justify-between text-sm font-semibold">
-                <span className="text-gray-900 dark:text-white">Total Auto Deductions</span>
+                <span className="text-gray-900 dark:text-white">Total Deductions</span>
                 <span className="text-red-500">-{formatCurrency(deductions.totalDeductions)}</span>
+              </div>
+              <div className="flex justify-between text-sm font-semibold">
+                <span className="text-gray-900 dark:text-white">Net After Deductions</span>
+                <span className="text-emerald-600">{formatCurrency(deductions.netAnnual)}</span>
               </div>
             </div>
           </div>
