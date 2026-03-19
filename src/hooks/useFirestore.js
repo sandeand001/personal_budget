@@ -363,6 +363,44 @@ export function useDebts() {
   return { debts, loading, addDebt, updateDebt, removeDebt };
 }
 
+// ─── Loan Groups (grouped student loans etc.) ───
+
+export function useLoanGroups() {
+  const { householdId } = useHousehold();
+  const [loanGroups, setLoanGroups] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!householdId) return;
+    const q = query(
+      collection(db, 'households', householdId, 'loanGroups'),
+      orderBy('createdAt', 'desc')
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setLoanGroups(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      setLoading(false);
+    });
+    return unsub;
+  }, [householdId]);
+
+  async function addLoanGroup(data) {
+    return addDoc(collection(db, 'households', householdId, 'loanGroups'), {
+      ...data,
+      createdAt: serverTimestamp(),
+    });
+  }
+
+  async function updateLoanGroup(id, data) {
+    return updateDoc(doc(db, 'households', householdId, 'loanGroups', id), data);
+  }
+
+  async function removeLoanGroup(id) {
+    return deleteDoc(doc(db, 'households', householdId, 'loanGroups', id));
+  }
+
+  return { loanGroups, loading: loading, addLoanGroup, updateLoanGroup, removeLoanGroup };
+}
+
 // ─── Monthly Income Log ───
 // Stores locked-in actual income per month (keyed by "YYYY-MM")
 

@@ -14,7 +14,7 @@ import {
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useAppMode } from '../contexts/AppModeContext';
-import { useIncomeStreams, useRetirement, useExpenses, useFixedExpenses, useBudgetProfiles, useVacations, useDebts } from '../hooks/useFirestore';
+import { useIncomeStreams, useRetirement, useExpenses, useFixedExpenses, useBudgetProfiles, useVacations, useDebts, useLoanGroups } from '../hooks/useFirestore';
 import { FREQUENCIES, toAnnual, toMonthly, formatCurrency, getPeriodsPerYear } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
 import { calculateAllStreamDeductions } from '../lib/taxEngine';
@@ -55,6 +55,7 @@ export default function Dashboard() {
   const { profiles: budgetProfiles } = useBudgetProfiles();
   const { vacations } = useVacations();
   const { debts } = useDebts();
+  const { loanGroups } = useLoanGroups();
 
   // Income totals (includes bonus)
   const totalGrossMonthly = useMemo(
@@ -103,11 +104,14 @@ export default function Dashboard() {
     [budgetProfiles]
   );
 
-  // Debt total
-  const totalDebt = useMemo(
-    () => debts.reduce((s, d) => s + (d.balance || 0), 0),
-    [debts]
-  );
+  // Debt total (individual debts + loan groups)
+  const totalDebt = useMemo(() => {
+    const indiv = debts.reduce((s, d) => s + (d.balance || 0), 0);
+    const groups = loanGroups.reduce((s, g) => s + (g.subLoans || []).reduce((ss, sl) => ss + (sl.balance || 0), 0), 0);
+    return indiv + groups;
+  }, [debts, loanGroups]);
+
+  const totalDebtAccounts = debts.length + loanGroups.length;
 
   // Vacation with highest savings progress
   const nextVacation = vacations.length > 0 ? vacations[0] : null;
@@ -252,7 +256,7 @@ export default function Dashboard() {
         <SummaryCard
           title="Total Debt"
           value={formatCurrency(totalDebt)}
-          subtitle={debts.length > 0 ? `${debts.length} account${debts.length !== 1 ? 's' : ''}` : 'No debts tracked'}
+          subtitle={totalDebtAccounts > 0 ? `${totalDebtAccounts} account${totalDebtAccounts !== 1 ? 's' : ''}` : 'No debts tracked'}
           icon={Landmark}
           color="bg-red-500"
           to="/debt"
@@ -344,7 +348,7 @@ export default function Dashboard() {
         {/* Debt Overview */}
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Debt Overview</h2>
-          {debts.length === 0 ? (
+          {totalDebtAccounts === 0 ? (
             <div className="text-center py-6 text-gray-400 dark:text-gray-500">
               <Landmark className="w-8 h-8 mx-auto mb-2 opacity-50" />
               <p className="text-sm">No debts tracked</p>
@@ -352,15 +356,24 @@ export default function Dashboard() {
             </div>
           ) : (
             <div className="space-y-2">
+              {loanGroups.slice(0, 3).map((g) => {
+                const groupBal = (g.subLoans || []).reduce((s, sl) => s + (sl.balance || 0), 0);
+                return (
+                  <div key={g.id} className="flex items-center justify-between px-3 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                    <span className="text-sm text-gray-900 dark:text-white">📚 {g.name}</span>
+                    <span className="text-sm font-medium text-red-600">{formatCurrency(groupBal)}</span>
+                  </div>
+                );
+              })}
               {debts.slice(0, 5).map((d) => (
                 <div key={d.id} className="flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                   <span className="text-sm text-gray-900 dark:text-white">{d.name}</span>
                   <span className="text-sm font-medium text-red-600">{formatCurrency(d.balance)}</span>
                 </div>
               ))}
-              {debts.length > 5 && (
+              {totalDebtAccounts > 5 && (
                 <Link to="/debt" className="block text-center text-xs text-emerald-600 hover:underline py-1">
-                  View all {debts.length} debts →
+                  View all {totalDebtAccounts} debts →
                 </Link>
               )}
             </div>
