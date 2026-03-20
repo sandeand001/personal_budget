@@ -4,6 +4,22 @@
  * Estimates only — not tax advice.
  */
 
+/** Internal helper: calculate total annual bonus supporting multi-bonus array and legacy fields */
+function _getAnnualBonus(stream) {
+  if (!stream.bonusEnabled) return 0;
+  if (Array.isArray(stream.bonuses) && stream.bonuses.length > 0) {
+    let total = 0;
+    for (const b of stream.bonuses) {
+      const amt = parseFloat(b.amount) || 0;
+      total += amt * (Array.isArray(b.months) ? b.months.length : 0);
+    }
+    return total;
+  }
+  // Legacy single-bonus fallback
+  const bonusPerCheck = parseFloat(stream.bonusAmount) || 0;
+  return bonusPerCheck * (stream.bonusMonths?.length || 0);
+}
+
 // ─── 2025 Federal Tax Brackets ───
 
 const FEDERAL_BRACKETS = {
@@ -219,8 +235,7 @@ export function calculateAllDeductions({
   for (const s of incomeStreams) {
     const baseAmount = s.grossAmount ?? s.amount ?? 0;
     const annual = baseAmount * (s.periodsPerYear || 12);
-    const bonusPerCheck = s.bonusEnabled ? (s.bonusAmount || 0) : 0;
-    const bonusAnnual = bonusPerCheck * (s.bonusMonths?.length || 0);
+    const bonusAnnual = _getAnnualBonus(s);
     totalGrossAnnual += annual + bonusAnnual;
     if (s.isTaxable) {
       totalTaxableAnnual += annual + bonusAnnual;
@@ -306,9 +321,7 @@ export function calculateStreamDeductions(stream, retirement = {}, householdTaxP
   const periodsPerYear = stream.periodsPerYear || 12;
   const baseAmount = stream.grossAmount ?? stream.amount ?? 0;
   const baseAnnual = baseAmount * periodsPerYear;
-  const bonusPerCheck = stream.bonusEnabled ? (stream.bonusAmount || 0) : 0;
-  const bonusChecksPerYear = stream.bonusMonths?.length || 0;
-  const bonusAnnual = bonusPerCheck * bonusChecksPerYear;
+  const bonusAnnual = _getAnnualBonus(stream);
   const grossAnnual = baseAnnual + bonusAnnual;
 
   if (!stream.isTaxable) {

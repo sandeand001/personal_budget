@@ -119,14 +119,45 @@ export function getStreamAmount(stream, isSimpleMode) {
 }
 
 /**
- * Get the bonus amount for a specific month.
- * Returns the per-check bonus only if bonusEnabled and the month is in bonusMonths.
+ * Get the total bonus amount for a specific month across all bonuses on a stream.
+ * Supports both the new multi-bonus model (bonuses[]) and legacy single-bonus fields.
  */
 export function getBonusForMonth(stream, month) {
-  if (!stream.bonusEnabled || !stream.bonusAmount) return 0;
+  if (!stream.bonusEnabled) return 0;
+  // New multi-bonus model
+  if (Array.isArray(stream.bonuses) && stream.bonuses.length > 0) {
+    let total = 0;
+    for (const b of stream.bonuses) {
+      const amt = parseFloat(b.amount) || 0;
+      if (amt > 0 && Array.isArray(b.months) && b.months.includes(month)) {
+        total += amt;
+      }
+    }
+    return total;
+  }
+  // Legacy single-bonus fallback
+  if (!stream.bonusAmount) return 0;
   const bonusMonths = stream.bonusMonths || [];
   if (bonusMonths.length === 0) return 0;
   return bonusMonths.includes(month) ? (parseFloat(stream.bonusAmount) || 0) : 0;
+}
+
+/**
+ * Get total annual bonus for a stream across all bonus entries.
+ */
+export function getAnnualBonus(stream) {
+  if (!stream.bonusEnabled) return 0;
+  if (Array.isArray(stream.bonuses) && stream.bonuses.length > 0) {
+    let total = 0;
+    for (const b of stream.bonuses) {
+      const amt = parseFloat(b.amount) || 0;
+      total += amt * (Array.isArray(b.months) ? b.months.length : 0);
+    }
+    return total;
+  }
+  // Legacy fallback
+  const bonusPerCheck = parseFloat(stream.bonusAmount) || 0;
+  return bonusPerCheck * (stream.bonusMonths?.length || 0);
 }
 
 /**

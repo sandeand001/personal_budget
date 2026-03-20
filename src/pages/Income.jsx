@@ -24,8 +24,7 @@ function IncomeModal({ onClose, onSave, initial, isSimpleMode }) {
       isTaxable: true,
       applicableMonths: [],
       bonusEnabled: false,
-      bonusAmount: '',
-      bonusMonths: [],
+      bonuses: [],
       manualDeductions: { enabled: false },
     };
     if (!initial) return defaults;
@@ -35,11 +34,18 @@ function IncomeModal({ onClose, onSave, initial, isSimpleMode }) {
       migrated.takeHomeAmount = initial.amount;
       migrated.grossAmount = '';
     }
-    // Migrate legacy bonusAmount to new model
-    if (initial.bonusAmount && !initial.bonusEnabled) {
-      migrated.bonusEnabled = true;
-      migrated.bonusAmount = initial.bonusAmount;
-      migrated.bonusMonths = initial.bonusMonths || [];
+    // Migrate legacy single-bonus to multi-bonus array
+    if (!Array.isArray(migrated.bonuses) || migrated.bonuses.length === 0) {
+      if (initial.bonusAmount || initial.bonusEnabled) {
+        migrated.bonusEnabled = true;
+        migrated.bonuses = [{
+          name: 'Bonus',
+          amount: initial.bonusAmount || '',
+          months: initial.bonusMonths || [],
+        }];
+      } else {
+        migrated.bonuses = [];
+      }
     }
     return migrated;
   });
@@ -65,19 +71,43 @@ function IncomeModal({ onClose, onSave, initial, isSimpleMode }) {
     });
   }
 
-  function toggleBonusMonth(m) {
-    const months = form.bonusMonths || [];
-    setForm({
-      ...form,
-      bonusMonths: months.includes(m)
+  function toggleBonusMonth(bonusIndex, m) {
+    const bonuses = [...form.bonuses];
+    const months = bonuses[bonusIndex].months || [];
+    bonuses[bonusIndex] = {
+      ...bonuses[bonusIndex],
+      months: months.includes(m)
         ? months.filter((x) => x !== m)
         : [...months, m].sort((a, b) => a - b),
-    });
+    };
+    setForm({ ...form, bonuses });
+  }
+
+  function addBonus() {
+    setForm({ ...form, bonuses: [...form.bonuses, { name: '', amount: '', months: [] }] });
+  }
+
+  function removeBonus(index) {
+    const bonuses = form.bonuses.filter((_, i) => i !== index);
+    setForm({ ...form, bonuses, bonusEnabled: bonuses.length > 0 ? form.bonusEnabled : false });
+  }
+
+  function updateBonus(index, field, value) {
+    const bonuses = [...form.bonuses];
+    bonuses[index] = { ...bonuses[index], [field]: value };
+    setForm({ ...form, bonuses });
   }
 
   function handleSubmit(e) {
     e.preventDefault();
     const parsed = parseFloat(currentAmount) || 0;
+    const cleanedBonuses = form.bonusEnabled
+      ? (form.bonuses || []).map(b => ({
+          name: b.name || 'Bonus',
+          amount: parseFloat(b.amount) || 0,
+          months: b.months || [],
+        }))
+      : [];
     const data = {
       ...form,
       // Always store both fields — set only the active one
@@ -86,8 +116,10 @@ function IncomeModal({ onClose, onSave, initial, isSimpleMode }) {
       // Keep legacy `amount` in sync for backwards compat with lock-in etc.
       amount: parsed,
       bonusEnabled: form.bonusEnabled || false,
-      bonusAmount: form.bonusEnabled ? (parseFloat(form.bonusAmount) || 0) : 0,
-      bonusMonths: form.bonusEnabled ? (form.bonusMonths || []) : [],
+      bonuses: cleanedBonuses,
+      // Clear legacy fields
+      bonusAmount: 0,
+      bonusMonths: [],
       manualDeductions: form.isTaxable && form.manualDeductions?.enabled
         ? { ...(form.manualDeductions || {}), enabled: true }
         : { enabled: false },
@@ -184,49 +216,76 @@ function IncomeModal({ onClose, onSave, initial, isSimpleMode }) {
               </div>
             </div>
           )}
-          {/* Bonus */}
+          {/* Bonuses */}
             <div className="border border-gray-200 dark:border-gray-600 rounded-lg p-4 space-y-3">
               <div className="flex items-center gap-3">
                 <label className="relative inline-flex items-center cursor-pointer">
                   <input type="checkbox" checked={form.bonusEnabled || false}
-                    onChange={(e) => setForm({ ...form, bonusEnabled: e.target.checked })}
+                    onChange={(e) => {
+                      const enabled = e.target.checked;
+                      setForm({ ...form, bonusEnabled: enabled, bonuses: enabled && form.bonuses.length === 0 ? [{ name: '', amount: '', months: [] }] : form.bonuses });
+                    }}
                     className="sr-only peer" />
                   <div className="w-9 h-5 bg-gray-300 peer-checked:bg-amber-500 rounded-full peer-focus:ring-2 peer-focus:ring-amber-300 transition after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
                 </label>
                 <div>
                   <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Includes bonuses</span>
-                  <p className="text-xs text-gray-400">Bonus is added to your regular paycheck in selected months</p>
+                  <p className="text-xs text-gray-400">Add one or more bonus types with different amounts and months</p>
                 </div>
               </div>
               {form.bonusEnabled && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Bonus Amount Per Check ($)</label>
-                    <input
-                      type="number" min="0" step="0.01" value={form.bonusAmount}
-                      onChange={(e) => setForm({ ...form, bonusAmount: e.target.value })}
-                      placeholder="0.00"
-                      className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-amber-500 outline-none text-sm"
-                    />
-                    <p className="text-xs text-gray-400 mt-1">Extra amount added to your regular check during bonus months</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Bonus Months</label>
-                    <div className="grid grid-cols-4 gap-1.5">
-                      {MONTH_NAMES.map((name, i) => {
-                        const month = i + 1;
-                        const selected = (form.bonusMonths || []).includes(month);
-                        return (
-                          <button key={month} type="button" onClick={() => toggleBonusMonth(month)}
-                            className={`px-2 py-1.5 rounded-lg text-xs font-medium transition ${selected ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400 ring-1 ring-amber-300 dark:ring-amber-700' : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'}`}>
-                            {name}
+                <div className="space-y-4">
+                  {(form.bonuses || []).map((bonus, idx) => (
+                    <div key={idx} className="border border-amber-200 dark:border-amber-800 rounded-lg p-3 space-y-3 bg-amber-50/50 dark:bg-amber-900/10">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wide">Bonus {idx + 1}</span>
+                        {form.bonuses.length > 1 && (
+                          <button type="button" onClick={() => removeBonus(idx)}
+                            className="text-red-400 hover:text-red-600 transition">
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
-                        );
-                      })}
+                        )}
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Label (optional)</label>
+                        <input
+                          type="text" value={bonus.name || ''}
+                          onChange={(e) => updateBonus(idx, 'name', e.target.value)}
+                          placeholder="e.g. Holiday Bonus, Performance Bonus"
+                          className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-amber-500 outline-none text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Amount Per Check ($)</label>
+                        <input
+                          type="number" min="0" step="0.01" value={bonus.amount}
+                          onChange={(e) => updateBonus(idx, 'amount', e.target.value)}
+                          placeholder="0.00"
+                          className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-amber-500 outline-none text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Months</label>
+                        <div className="grid grid-cols-4 gap-1.5">
+                          {MONTH_NAMES.map((name, i) => {
+                            const month = i + 1;
+                            const selected = (bonus.months || []).includes(month);
+                            return (
+                              <button key={month} type="button" onClick={() => toggleBonusMonth(idx, month)}
+                                className={`px-2 py-1.5 rounded-lg text-xs font-medium transition ${selected ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400 ring-1 ring-amber-300 dark:ring-amber-700' : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'}`}>
+                                {name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
                     </div>
-                    <p className="text-xs text-gray-400 mt-1">Select months when you expect bonus pay on your check</p>
-                  </div>
-                </>
+                  ))}
+                  <button type="button" onClick={addBonus}
+                    className="flex items-center gap-1.5 text-sm text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300 font-medium transition">
+                    <Plus className="w-4 h-4" /> Add Another Bonus
+                  </button>
+                </div>
               )}
             </div>
           <div className="flex gap-3 pt-2">
