@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useHousehold } from '../contexts/HouseholdContext';
 import { Users, Mail, Crown, Trash2, Check, X, Edit2, Send } from 'lucide-react';
@@ -22,6 +24,23 @@ export default function HouseholdSettings() {
   const [sending, setSending] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState('');
+  const [memberProfiles, setMemberProfiles] = useState({});
+
+  // Fetch display names for all household members
+  useEffect(() => {
+    if (!household?.memberIds) return;
+    const otherIds = household.memberIds.filter((id) => id !== user.uid);
+    if (otherIds.length === 0) return;
+
+    Promise.all(
+      otherIds.map(async (id) => {
+        const snap = await getDoc(doc(db, 'userProfiles', id));
+        return [id, snap.exists() ? snap.data() : null];
+      })
+    ).then((entries) => {
+      setMemberProfiles(Object.fromEntries(entries.filter(([, v]) => v)));
+    });
+  }, [household?.memberIds, user.uid]);
   const [message, setMessage] = useState(null);
 
   async function handleInvite(e) {
@@ -167,7 +186,9 @@ export default function HouseholdSettings() {
                 </div>
                 <div>
                   <p className="text-sm font-medium text-gray-900 dark:text-white">
-                    {memberId === user.uid ? `${user.displayName || user.email} (You)` : memberId}
+                    {memberId === user.uid
+                      ? `${user.displayName || user.email} (You)`
+                      : memberProfiles[memberId]?.displayName || memberProfiles[memberId]?.email || memberId}
                   </p>
                 </div>
                 {memberId === household?.ownerId && (
