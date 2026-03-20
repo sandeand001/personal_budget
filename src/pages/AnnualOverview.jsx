@@ -30,7 +30,7 @@ export default function AnnualOverview() {
             (sum, s) => sum + getStreamMonthTotal(s, isSimpleMode, month),
             0
           );
-      const fixedExp = fixedExpensesList.reduce(
+      const fixedExp = fixedExpensesList.filter((e) => !(e.isOptional && e.disabled)).reduce(
         (sum, e) => sum + getAmountForMonth(e.amount, e.frequency, e.applicableMonths, month),
         0
       );

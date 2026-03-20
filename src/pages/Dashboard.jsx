@@ -95,19 +95,24 @@ export default function Dashboard() {
     [variableExpenses]
   );
 
-  const fixedAnnual = useMemo(
-    () => fixedExpenses.reduce((s, e) => s + toAnnual(e.amount, e.frequency), 0),
+  const activeFixedExpenses = useMemo(
+    () => fixedExpenses.filter((e) => !(e.isOptional && e.disabled)),
     [fixedExpenses]
+  );
+
+  const fixedAnnual = useMemo(
+    () => activeFixedExpenses.reduce((s, e) => s + toAnnual(e.amount, e.frequency), 0),
+    [activeFixedExpenses]
   );
 
   const totalExpensesAnnual = variableAnnual + fixedAnnual;
 
   // Actual expenses for this month
   const totalExpensesThisMonth = useMemo(
-    () => [...fixedExpenses, ...variableExpenses].reduce((s, e) => s + getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth, currentYear), 0),
-    [fixedExpenses, variableExpenses, currentMonth, currentYear]
+    () => [...activeFixedExpenses, ...variableExpenses].reduce((s, e) => s + getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth, currentYear), 0),
+    [activeFixedExpenses, variableExpenses, currentMonth, currentYear]
   );
-  const allExpenses = [...fixedExpenses, ...variableExpenses];
+  const allExpenses = [...activeFixedExpenses, ...variableExpenses];
 
   const netAnnual = deductions.netAnnual - totalExpensesAnnual;
 

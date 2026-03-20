@@ -297,7 +297,7 @@ function RetirementForm({ retirement, onSave }) {
 
 // ─── Expense Modal (shared for fixed & variable) ───
 
-function ExpenseModal({ onClose, onSave, initial, title, debts = [], loanGroups = [] }) {
+function ExpenseModal({ onClose, onSave, initial, title, debts = [], loanGroups = [], isFixed = false }) {
   const [form, setForm] = useState(initial || {
     name: '',
     amount: '',
@@ -305,6 +305,7 @@ function ExpenseModal({ onClose, onSave, initial, title, debts = [], loanGroups 
     applicableMonths: [],
     linkedDebtId: '',
     linkedDebtType: '',
+    ...(isFixed ? { isOptional: false } : {}),
   });
 
   function handleFrequencyChange(freq) {
@@ -381,6 +382,19 @@ function ExpenseModal({ onClose, onSave, initial, title, debts = [], loanGroups 
               </div>
             </div>
           )}
+          {/* Optional toggle (fixed expenses only) */}
+          {isFixed && (
+            <div className="flex items-center gap-3">
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" checked={form.isOptional || false} onChange={(e) => setForm({ ...form, isOptional: e.target.checked })} className="sr-only peer" />
+                <div className="w-9 h-5 bg-gray-300 peer-checked:bg-amber-500 rounded-full peer-focus:ring-2 peer-focus:ring-amber-300 transition after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
+              </label>
+              <div>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Optional</span>
+                <p className="text-xs text-gray-400">Can be toggled on/off each month</p>
+              </div>
+            </div>
+          )}
           {/* Link to Debt */}
           {(debts.length > 0 || loanGroups.length > 0) && (
             <div>
@@ -436,7 +450,7 @@ function ConfirmDelete({ name, onClose, onConfirm }) {
 function ExpenseLockInModal({ fixedExpenses, variableExpenses, income, currentBalance, currentMonth, lockedData, optedProfiles, onClose, onLock }) {
   const [fixedEntries, setFixedEntries] = useState(() => {
     if (lockedData?.fixedEntries) return lockedData.fixedEntries;
-    return fixedExpenses.map((e) => ({
+    return fixedExpenses.filter((e) => !(e.isOptional && e.disabled)).map((e) => ({
       id: e.id,
       name: e.name,
       estimated: getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth),
@@ -882,14 +896,15 @@ export default function Expenses() {
     };
   }, [streamDeductions]);
 
-  // Fixed expenses totals
-  const totalFixedThisMonth = fixedExpensesList.reduce((sum, e) => sum + getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth), 0);
+  // Fixed expenses totals (exclude disabled optional expenses)
+  const activeFixedExpenses = fixedExpensesList.filter((e) => !(e.isOptional && e.disabled));
+  const totalFixedThisMonth = activeFixedExpenses.reduce((sum, e) => sum + getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth), 0);
 
   // Variable expenses totals
   const totalVariableThisMonth = expenses.reduce((sum, e) => sum + getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth), 0);
   const totalVariableAnnual = expenses.reduce((sum, e) => sum + toAnnual(e.amount, e.frequency), 0);
 
-  const totalFixedAnnual = fixedExpensesList.reduce((sum, e) => sum + toAnnual(e.amount, e.frequency), 0);
+  const totalFixedAnnual = activeFixedExpenses.reduce((sum, e) => sum + toAnnual(e.amount, e.frequency), 0);
   const totalAllExpensesThisMonth = totalFixedThisMonth + totalVariableThisMonth;
 
   const netAfterAll = deductions.netAnnual - totalVariableAnnual - totalFixedAnnual;
@@ -1225,15 +1240,27 @@ export default function Expenses() {
                       ? loanGroups.find((g) => g.id === e.linkedDebtId)?.name
                       : debts.find((d) => d.id === e.linkedDebtId)?.name) || null
                     : null;
+                  const isDisabled = e.isOptional && e.disabled;
                   return (
-                  <tr key={e.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                  <tr key={e.id} className={`hover:bg-gray-50 dark:hover:bg-gray-700/30 ${isDisabled ? 'opacity-40' : ''}`}>
                     <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">
-                      {e.name}
-                      {linkedName && <span className="ml-2 text-xs text-blue-500 dark:text-blue-400">→ {linkedName}</span>}
+                      <div className="flex items-center gap-2">
+                        {e.isOptional && (
+                          <label className="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="checkbox" checked={!e.disabled} onChange={() => updateFixed(e.id, { disabled: !e.disabled })} className="sr-only peer" />
+                            <div className="w-8 h-4.5 bg-gray-300 peer-checked:bg-emerald-500 rounded-full transition after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:after:translate-x-3.5"></div>
+                          </label>
+                        )}
+                        <span className={isDisabled ? 'line-through' : ''}>
+                          {e.name}
+                          {e.isOptional && <span className="ml-1.5 text-[10px] font-medium uppercase text-amber-500 dark:text-amber-400">optional</span>}
+                        </span>
+                        {linkedName && <span className="ml-2 text-xs text-blue-500 dark:text-blue-400">→ {linkedName}</span>}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-right text-gray-900 dark:text-white">{formatCurrency(e.amount)}</td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{freqLabel(e.frequency)}</td>
-                    <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-white">{formatCurrency(getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth))}</td>
+                    <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-white">{isDisabled ? '—' : formatCurrency(getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth))}</td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
                         <button onClick={() => { setEditingFixed(e); setShowFixedModal(true); }}
@@ -1497,11 +1524,12 @@ export default function Expenses() {
       {showFixedModal && (
         <ExpenseModal
           title={editingFixed ? 'Edit Fixed Expense' : 'Add Fixed Expense'}
-          initial={editingFixed ? { name: editingFixed.name, amount: editingFixed.amount, frequency: editingFixed.frequency, applicableMonths: editingFixed.applicableMonths || [], linkedDebtId: editingFixed.linkedDebtId || '', linkedDebtType: editingFixed.linkedDebtType || '' } : null}
+          initial={editingFixed ? { name: editingFixed.name, amount: editingFixed.amount, frequency: editingFixed.frequency, applicableMonths: editingFixed.applicableMonths || [], linkedDebtId: editingFixed.linkedDebtId || '', linkedDebtType: editingFixed.linkedDebtType || '', isOptional: editingFixed.isOptional || false } : null}
           onClose={() => { setShowFixedModal(false); setEditingFixed(null); }}
           onSave={handleSaveFixed}
           debts={debts}
           loanGroups={loanGroups}
+          isFixed
         />
       )}
       {deleting && (
