@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Wallet, Plus, Trash2, Pencil, X, ChevronDown, ChevronRight, ShoppingCart, Info } from 'lucide-react';
 import { useBudgetProfiles, useBudgetTransactions } from '../hooks/useFirestore';
-import { FREQUENCIES, formatCurrency, formatCurrencyShort } from '../lib/financial';
+import { formatCurrency, formatCurrencyShort } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
 import { cn } from '../lib/utils';
 import {
@@ -29,7 +29,6 @@ function ProfileModal({ onClose, onSave, initial }) {
   const [form, setForm] = useState(initial || {
     name: '',
     totalBudget: '',
-    frequency: 'monthly',
     includeInSpendingSplit: true,
     categories: DEFAULT_CATEGORIES.map((c) => ({ name: c, allocated: '' })),
   });
@@ -54,7 +53,7 @@ function ProfileModal({ onClose, onSave, initial }) {
     const categories = form.categories
       .filter((c) => c.name.trim())
       .map((c) => ({ name: c.name.trim(), allocated: parseFloat(c.allocated) || 0 }));
-    onSave({ name: form.name, totalBudget, frequency: form.frequency, includeInSpendingSplit: form.includeInSpendingSplit !== false, categories });
+    onSave({ name: form.name, totalBudget, includeInSpendingSplit: form.includeInSpendingSplit !== false, categories });
     onClose();
   }
 
@@ -78,20 +77,13 @@ function ProfileModal({ onClose, onSave, initial }) {
               placeholder="e.g., My Budget, Wife's Budget"
               className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none text-sm" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Total Budget ($)</label>
-              <input type="number" required min="0" step="0.01" value={form.totalBudget}
-                onChange={(e) => setForm({ ...form, totalBudget: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none text-sm" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Frequency</label>
-              <select value={form.frequency} onChange={(e) => setForm({ ...form, frequency: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm">
-                {FREQUENCIES.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
-              </select>
-            </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Starting Budget ($)</label>
+            <input type="number" min="0" step="0.01" value={form.totalBudget}
+              onChange={(e) => setForm({ ...form, totalBudget: e.target.value })}
+              placeholder="0.00 — grows automatically from lock-in"
+              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none text-sm" />
+            <p className="text-xs text-gray-400 mt-1">Spending money from expense lock-in is added automatically</p>
           </div>
 
           {/* Spending Money Split */}
@@ -246,8 +238,6 @@ function ProfileCard({ profile, onEdit, onDelete }) {
     Spent: spent[c.name] || 0,
   }));
 
-  const freqLabel = FREQUENCIES.find((f) => f.value === profile.frequency)?.label || profile.frequency;
-
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
       {/* Header */}
@@ -256,7 +246,7 @@ function ProfileCard({ profile, onEdit, onDelete }) {
           {expanded ? <ChevronDown className="w-5 h-5 text-gray-400" /> : <ChevronRight className="w-5 h-5 text-gray-400" />}
           <div>
             <h3 className="font-semibold text-gray-900 dark:text-white">{profile.name}</h3>
-            <p className="text-xs text-gray-500 dark:text-gray-400">{freqLabel} · {formatCurrency(profile.totalBudget)} budget</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{formatCurrency(profile.totalBudget)} budget</p>
           </div>
         </div>
         <div className="flex items-center gap-4">
@@ -438,7 +428,8 @@ export default function SpendingMoney() {
         </summary>
         <div className="mt-3 text-sm text-blue-700 dark:text-blue-400 space-y-1">
           <p>Create a budget profile for each person (e.g., yours and your partner's).</p>
-          <p>Set a total budget, frequency, and subdivide into categories.</p>
+              <p>Set a starting budget (or leave it at $0) and subdivide into categories.</p>
+              <p>Spending money is added automatically when you lock in expenses. You can also adjust the budget manually.</p>
           <p>Log purchases manually — the app tracks your running totals.</p>
           <p>Visit the <strong>Annual Overview</strong> page to see a month-by-month breakdown of income vs expenses.</p>
         </div>
