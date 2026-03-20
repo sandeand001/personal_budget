@@ -16,6 +16,8 @@ import {
   Eye,
   EyeOff,
   CalendarRange,
+  TrendingUp,
+  Link2,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { usePrivacy } from '../contexts/PrivacyContext';
@@ -28,6 +30,8 @@ const navItems = [
   { to: '/annual', label: 'Annual Overview', icon: CalendarRange },
   { to: '/vacations', label: 'Vacations', icon: Plane },
   { to: '/debt', label: 'Debt', icon: Landmark },
+  { to: '/investments', label: 'Investments', icon: TrendingUp },
+  { to: '/accounts', label: 'Connected Accounts', icon: Link2 },
   { to: '/settings', label: 'Settings', icon: Settings },
 ];
 

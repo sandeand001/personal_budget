@@ -1,9 +1,10 @@
-import { useState, useMemo } from 'react';
-import { Landmark, Plus, Trash2, Pencil, X, TrendingDown, ChevronDown, ChevronRight, GraduationCap, Lock, Unlock, Info, ToggleLeft, ToggleRight } from 'lucide-react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import { Landmark, Plus, Trash2, Pencil, X, TrendingDown, ChevronDown, ChevronRight, GraduationCap, Lock, Unlock, Info, ToggleLeft, ToggleRight, CreditCard, RefreshCw } from 'lucide-react';
 import { useDebts, useLoanGroups, useFixedExpenses, useExpenses, useMonthlyDebtLog } from '../hooks/useFirestore';
 import { formatCurrency, formatCurrencyShort, FREQUENCIES, toMonthly, toAnnual, getAmountForMonth, MONTH_NAMES_FULL } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
 import { useAppMode } from '../contexts/AppModeContext';
+import { fetchBalances } from '../lib/plaid';
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -604,6 +605,9 @@ export default function Debt() {
   const { logs: debtLogs, lockMonth: lockDebtMonth, unlockMonth: unlockDebtMonth } = useMonthlyDebtLog();
   usePrivacy();
   const { isSimpleMode, toggleMode } = useAppMode();
+  const [linkedBalances, setLinkedBalances] = useState([]);
+  const [balancesLoading, setBalancesLoading] = useState(false);
+  const [balancesError, setBalancesError] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editItem, setEditItem] = useState(null);
   const [deleteItem, setDeleteItem] = useState(null);
@@ -611,6 +615,29 @@ export default function Debt() {
   const [editGroup, setEditGroup] = useState(null);
   const [deleteGroup, setDeleteGroup] = useState(null);
   const [showLockModal, setShowLockModal] = useState(false);
+
+  // Fetch linked credit card balances from Plaid
+  const loadLinkedBalances = useCallback(async () => {
+    setBalancesLoading(true);
+    setBalancesError(null);
+    try {
+      const data = await fetchBalances();
+      // Filter for credit card and loan accounts only
+      const debtAccounts = (data.accounts || []).filter(
+        a => a.type === 'credit' || a.type === 'loan'
+      );
+      setLinkedBalances(debtAccounts);
+    } catch (err) {
+      // Silently fail if no accounts linked yet (don't show error)
+      if (!err.message?.includes('Unauthorized')) {
+        setBalancesError(err.message);
+      }
+      setLinkedBalances([]);
+    }
+    setBalancesLoading(false);
+  }, []);
+
+  useEffect(() => { loadLinkedBalances(); }, [loadLinkedBalances]);
 
   const now = new Date();
   const currentMonth = now.getMonth() + 1;
@@ -845,6 +872,42 @@ export default function Debt() {
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
             <p className="text-sm text-gray-500 dark:text-gray-400">Est. Total Interest</p>
             <p className="text-2xl font-bold text-gray-700 dark:text-gray-300">{formatCurrency(summary.totalInterest)}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Linked Credit Card Balances */}
+      {linkedBalances.length > 0 && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <CreditCard className="w-5 h-5 text-purple-500" />
+              <h2 className="font-semibold text-gray-900 dark:text-white">Linked Account Balances</h2>
+              <span className="text-xs bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-400 px-2 py-0.5 rounded-full">Live</span>
+            </div>
+            <button onClick={loadLinkedBalances} disabled={balancesLoading}
+              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition disabled:opacity-50">
+              <RefreshCw className={`w-4 h-4 ${balancesLoading ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+          <div className="divide-y divide-gray-50 dark:divide-gray-700/50">
+            {linkedBalances.map(acct => (
+              <div key={acct.account_id} className="px-4 py-3 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <CreditCard className="w-4 h-4 text-gray-400" />
+                  <div>
+                    <p className="text-sm font-medium text-gray-900 dark:text-white">{acct.name}</p>
+                    <p className="text-xs text-gray-400">{acct.institutionName} {acct.mask ? `····${acct.mask}` : ''}</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-bold text-red-600">{formatCurrency(acct.balanceCurrent || 0)}</p>
+                  {acct.balanceLimit && (
+                    <p className="text-xs text-gray-400">{formatCurrency(acct.balanceLimit)} limit</p>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
