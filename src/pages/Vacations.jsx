@@ -20,28 +20,61 @@ const EXPENSE_CATEGORIES = [
   'Other',
 ];
 
+const DEFAULT_SAVINGS_CATEGORIES = [
+  'Airfare',
+  'Hotels',
+  'Spending Money',
+];
+
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#84cc16'];
 
 // ─── Vacation Modal ───
 
 function VacationModal({ onClose, onSave, initial }) {
-  const [form, setForm] = useState(initial || {
-    name: '',
-    destination: '',
-    startDate: '',
-    endDate: '',
-    savingsGoal: '',
+  const [form, setForm] = useState(() => {
+    if (initial) return initial;
+    return {
+      name: '',
+      destination: '',
+      startDate: '',
+      endDate: '',
+      savingsGoal: '',
+      savingsCategories: DEFAULT_SAVINGS_CATEGORIES.map((c) => ({ name: c, goal: '' })),
+    };
   });
+
+  // Migrate legacy vacations without categories
+  const categories = form.savingsCategories || [];
+
+  function addSavingsCategory() {
+    setForm({ ...form, savingsCategories: [...categories, { name: '', goal: '' }] });
+  }
+
+  function updateSavingsCategory(i, field, val) {
+    const cats = [...categories];
+    cats[i] = { ...cats[i], [field]: val };
+    setForm({ ...form, savingsCategories: cats });
+  }
+
+  function removeSavingsCategory(i) {
+    setForm({ ...form, savingsCategories: categories.filter((_, idx) => idx !== i) });
+  }
+
+  const totalFromCategories = categories.reduce((s, c) => s + (parseFloat(c.goal) || 0), 0);
 
   function handleSubmit(e) {
     e.preventDefault();
-    onSave({ ...form, savingsGoal: parseFloat(form.savingsGoal) || 0 });
+    const savingsCategories = categories
+      .filter((c) => c.name.trim())
+      .map((c) => ({ name: c.name.trim(), goal: parseFloat(c.goal) || 0 }));
+    const savingsGoal = savingsCategories.reduce((s, c) => s + c.goal, 0);
+    onSave({ ...form, savingsGoal, savingsCategories });
     onClose();
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-md p-6 relative">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-lg p-6 relative max-h-[90vh] overflow-y-auto">
         <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
           <X className="w-5 h-5" />
         </button>
@@ -77,13 +110,38 @@ function VacationModal({ onClose, onSave, initial }) {
                 className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
             </div>
           </div>
+
+          {/* Savings Goal Categories */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Savings Goal ($)</label>
-            <input type="number" min="0" step="0.01" value={form.savingsGoal}
-              onChange={(e) => setForm({ ...form, savingsGoal: e.target.value })}
-              placeholder="Total amount you want to save"
-              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none text-sm" />
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Savings Goals</label>
+              <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                Total: {formatCurrency(totalFromCategories)}
+              </span>
+            </div>
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {categories.map((cat, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <input type="text" value={cat.name}
+                    onChange={(e) => updateSavingsCategory(i, 'name', e.target.value)}
+                    placeholder="e.g., Airfare, Hotels"
+                    className="flex-1 px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+                  <input type="number" min="0" step="0.01" value={cat.goal}
+                    onChange={(e) => updateSavingsCategory(i, 'goal', e.target.value)}
+                    placeholder="$0"
+                    className="w-24 px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+                  <button type="button" onClick={() => removeSavingsCategory(i)} className="p-1 text-red-400 hover:text-red-600">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button type="button" onClick={addSavingsCategory}
+              className="mt-2 text-sm text-emerald-600 hover:text-emerald-700 flex items-center gap-1">
+              <Plus className="w-3 h-3" /> Add Category
+            </button>
           </div>
+
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose}
               className="flex-1 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition">Cancel</button>
@@ -165,11 +223,13 @@ function ExpenseModal({ onClose, onSave }) {
 
 // ─── Contribution Modal ───
 
-function ContributionModal({ onClose, onSave }) {
+function ContributionModal({ onClose, onSave, savingsCategories = [] }) {
+  const categoryNames = savingsCategories.filter((c) => c.name).map((c) => c.name);
   const [form, setForm] = useState({
     amount: '',
     date: new Date().toISOString().slice(0, 10),
     note: '',
+    category: categoryNames[0] || '',
   });
 
   function handleSubmit(e) {
@@ -186,11 +246,23 @@ function ContributionModal({ onClose, onSave }) {
         </button>
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Log Contribution</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Amount ($)</label>
-            <input type="number" required min="0" step="0.01" value={form.amount}
-              onChange={(e) => setForm({ ...form, amount: e.target.value })}
-              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none text-sm" />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Amount ($)</label>
+              <input type="number" required min="0" step="0.01" value={form.amount}
+                onChange={(e) => setForm({ ...form, amount: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none text-sm" />
+            </div>
+            {categoryNames.length > 0 && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Category</label>
+                <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm">
+                  {categoryNames.map((c) => <option key={c} value={c}>{c}</option>)}
+                  <option value="">General</option>
+                </select>
+              </div>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Date</label>
@@ -230,6 +302,7 @@ function VacationCard({ vacation, onEdit, onDelete }) {
   const paidExpenses = useMemo(() => expenses.filter((e) => e.isPaid).reduce((s, e) => s + (e.amount || 0), 0), [expenses]);
   const totalContributions = useMemo(() => contributions.reduce((s, c) => s + (c.amount || 0), 0), [contributions]);
   const savingsGoal = vacation.savingsGoal || 0;
+  const savingsCategories = vacation.savingsCategories || [];
   const savingsPct = savingsGoal > 0 ? Math.min((totalContributions / savingsGoal) * 100, 100) : 0;
 
   const daysUntil = useMemo(() => {
@@ -282,19 +355,46 @@ function VacationCard({ vacation, onEdit, onDelete }) {
         <div className="px-5 pb-5 border-t border-gray-200 dark:border-gray-700 pt-4 space-y-5">
           {/* Savings Progress */}
           {savingsGoal > 0 && (
-            <div>
-              <div className="flex justify-between text-sm mb-1">
-                <span className="text-gray-700 dark:text-gray-300 flex items-center gap-1">
-                  <Target className="w-4 h-4 text-emerald-600" /> Savings Goal
-                </span>
-                <span className="font-medium text-gray-700 dark:text-gray-300">
-                  {formatCurrency(totalContributions)} / {formatCurrency(savingsGoal)}
-                </span>
+            <div className="space-y-3">
+              {/* Overall progress */}
+              <div>
+                <div className="flex justify-between text-sm mb-1">
+                  <span className="text-gray-700 dark:text-gray-300 flex items-center gap-1">
+                    <Target className="w-4 h-4 text-emerald-600" /> Total Savings Goal
+                  </span>
+                  <span className="font-medium text-gray-700 dark:text-gray-300">
+                    {formatCurrency(totalContributions)} / {formatCurrency(savingsGoal)}
+                  </span>
+                </div>
+                <div className="w-full h-3 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                  <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${savingsPct}%` }} />
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{Math.round(savingsPct)}% saved</p>
               </div>
-              <div className="w-full h-3 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
-                <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${savingsPct}%` }} />
-              </div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{Math.round(savingsPct)}% saved</p>
+              {/* Per-category progress */}
+              {savingsCategories.length > 0 && (
+                <div className="space-y-2">
+                  {savingsCategories.map((cat) => {
+                    const catContributions = contributions
+                      .filter((c) => c.category === cat.name)
+                      .reduce((s, c) => s + (c.amount || 0), 0);
+                    const catPct = cat.goal > 0 ? Math.min((catContributions / cat.goal) * 100, 100) : 0;
+                    return (
+                      <div key={cat.name}>
+                        <div className="flex justify-between text-xs mb-0.5">
+                          <span className="text-gray-600 dark:text-gray-400">{cat.name}</span>
+                          <span className="text-gray-600 dark:text-gray-400">
+                            {formatCurrency(catContributions)} / {formatCurrency(cat.goal)}
+                          </span>
+                        </div>
+                        <div className="w-full h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                          <div className="h-full bg-blue-500 rounded-full transition-all" style={{ width: `${catPct}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 
@@ -388,6 +488,7 @@ function VacationCard({ vacation, onEdit, onDelete }) {
                     <div>
                       <span className="text-sm font-medium text-gray-900 dark:text-white">{formatCurrency(c.amount)}</span>
                       <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">{c.date}</span>
+                      {c.category && <span className="text-xs text-blue-500 dark:text-blue-400 ml-2">{c.category}</span>}
                       {c.note && <span className="text-xs text-gray-400 ml-2">{c.note}</span>}
                     </div>
                     <button onClick={() => removeContribution(c.id)} className="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition">
@@ -417,7 +518,7 @@ function VacationCard({ vacation, onEdit, onDelete }) {
 
           {/* Modals */}
           {expModal && <ExpenseModal onClose={() => setExpModal(false)} onSave={addExpense} />}
-          {conModal && <ContributionModal onClose={() => setConModal(false)} onSave={addContribution} />}
+          {conModal && <ContributionModal onClose={() => setConModal(false)} onSave={addContribution} savingsCategories={savingsCategories} />}
         </div>
       )}
     </div>
@@ -485,7 +586,11 @@ export default function Vacations() {
               key={v.id}
               vacation={v}
               onEdit={(vac) => {
-                setEditItem({ ...vac, savingsGoal: vac.savingsGoal?.toString() || '' });
+                setEditItem({
+                  ...vac,
+                  savingsGoal: vac.savingsGoal?.toString() || '',
+                  savingsCategories: (vac.savingsCategories || []).map((c) => ({ ...c, goal: c.goal?.toString() || '' })),
+                });
                 setModalOpen(true);
               }}
               onDelete={setDeleteItem}
