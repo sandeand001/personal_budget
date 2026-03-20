@@ -9,8 +9,6 @@ import SpendingMoney from './pages/SpendingMoney';
 import AnnualOverview from './pages/AnnualOverview';
 import Vacations from './pages/Vacations';
 import Debt from './pages/Debt';
-import Investments from './pages/Investments';
-import ConnectedAccounts from './pages/ConnectedAccounts';
 import HouseholdSettings from './pages/HouseholdSettings';
 
 export default function App() {
@@ -31,8 +29,6 @@ export default function App() {
         <Route path="/annual" element={<AnnualOverview />} />
         <Route path="/vacations" element={<Vacations />} />
         <Route path="/debt" element={<Debt />} />
-        <Route path="/investments" element={<Investments />} />
-        <Route path="/accounts" element={<ConnectedAccounts />} />
         <Route path="/settings" element={<HouseholdSettings />} />
       </Route>
     </Routes>
