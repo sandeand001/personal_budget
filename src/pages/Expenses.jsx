@@ -455,6 +455,7 @@ function ExpenseLockInModal({ fixedExpenses, variableExpenses, income, currentBa
       name: e.name,
       estimated: getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth),
       actual: getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth),
+      alreadyPaid: e.alreadyPaid || false,
     }));
   });
   const [varEntries, setVarEntries] = useState(() => {
@@ -508,8 +509,11 @@ function ExpenseLockInModal({ fixedExpenses, variableExpenses, income, currentBa
   }, [debts, loanGroups, allExpenses, currentMonth, lockedData]);
 
   const fixedTotal = fixedEntries.reduce((s, e) => s + (parseFloat(e.actual) || 0), 0);
+  const alreadyPaidTotal = useBalance
+    ? fixedEntries.filter((e) => e.alreadyPaid).reduce((s, e) => s + (parseFloat(e.actual) || 0), 0)
+    : 0;
   const varTotal = varEntries.reduce((s, e) => s + (parseFloat(e.actual) || 0), 0);
-  const totalExpenses = fixedTotal + varTotal;
+  const totalExpenses = fixedTotal - alreadyPaidTotal + varTotal;
   const startingAmount = useBalance ? balanceAmount : income;
   const spendingMoney = Math.max(0, startingAmount - totalExpenses);
   const perPerson = optedProfiles.length > 0 ? spendingMoney / optedProfiles.length : spendingMoney;
@@ -568,12 +572,15 @@ function ExpenseLockInModal({ fixedExpenses, variableExpenses, income, currentBa
         {/* Fixed Expenses */}
         {fixedEntries.length > 0 && (
           <div className="mb-4">
-            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Fixed Expenses</h3>
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Fixed Expenses{useBalance && alreadyPaidTotal > 0 ? ` (${formatCurrency(alreadyPaidTotal)} already paid)` : ''}</h3>
             <div className="space-y-2">
               {fixedEntries.map((entry, i) => (
-                <div key={entry.id} className="flex items-center gap-3">
+                <div key={entry.id} className={`flex items-center gap-3 ${useBalance && entry.alreadyPaid ? 'opacity-50' : ''}`}>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{entry.name}</p>
+                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                      {entry.name}
+                      {useBalance && entry.alreadyPaid && <span className="ml-1.5 text-[10px] font-medium uppercase text-emerald-500">paid</span>}
+                    </p>
                     <p className="text-xs text-gray-400">Est: {formatCurrency(entry.estimated)}</p>
                   </div>
                   <input type="number" min="0" step="0.01" value={entry.actual}

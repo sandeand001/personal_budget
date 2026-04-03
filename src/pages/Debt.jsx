@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
-import { Landmark, Plus, Trash2, Pencil, X, TrendingDown, ChevronDown, ChevronRight, GraduationCap, Lock, Unlock, Info, ToggleLeft, ToggleRight } from 'lucide-react';
-import { useDebts, useLoanGroups, useFixedExpenses, useExpenses, useMonthlyDebtLog } from '../hooks/useFirestore';
-import { formatCurrency, formatCurrencyShort, FREQUENCIES, toMonthly, toAnnual, getAmountForMonth, MONTH_NAMES_FULL } from '../lib/financial';
+import { Landmark, Plus, Trash2, Pencil, X, TrendingDown, ChevronDown, ChevronRight, GraduationCap, Info, ToggleLeft, ToggleRight } from 'lucide-react';
+import { useDebts, useLoanGroups, useFixedExpenses, useExpenses } from '../hooks/useFirestore';
+import { formatCurrency, formatCurrencyShort, FREQUENCIES, toMonthly, toAnnual } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
 import { useAppMode } from '../contexts/AppModeContext';
 import {
@@ -465,143 +465,11 @@ function calcPayoff(balance, annualRate, monthlyPayment) {
   return { months, totalInterest: totalPaid - balance };
 }
 
-/** Debt Lock-In Modal */
-function DebtLockInModal({ debts, loanGroups, linkedExpenses, currentMonth, lockedData, onClose, onLock }) {
-  // Build entries for each debt that has linked expenses
-  const [entries, setEntries] = useState(() => {
-    if (lockedData?.entries) return lockedData.entries;
-
-    const rows = [];
-    debts.forEach((d) => {
-      const linked = linkedExpenses.filter((e) => e.linkedDebtId === d.id && e.linkedDebtType === 'debt');
-      if (linked.length === 0) return;
-      const totalPayment = linked.reduce((s, e) => s + getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth), 0);
-      rows.push({
-        debtId: d.id,
-        debtType: 'debt',
-        name: d.name,
-        currentBalance: d.balance,
-        payment: totalPayment,
-        linkedItems: linked.map((e) => ({ id: e.id, name: e.name, amount: getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth) })),
-      });
-    });
-    loanGroups.forEach((g) => {
-      const linked = linkedExpenses.filter((e) => e.linkedDebtId === g.id && e.linkedDebtType === 'loanGroup');
-      if (linked.length === 0) return;
-      const totalPayment = linked.reduce((s, e) => s + getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth), 0);
-      rows.push({
-        debtId: g.id,
-        debtType: 'loanGroup',
-        name: g.name,
-        currentBalance: (g.subLoans || []).reduce((s, sl) => s + (sl.balance || 0), 0),
-        payment: totalPayment,
-        linkedItems: linked.map((e) => ({ id: e.id, name: e.name, amount: getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth) })),
-      });
-    });
-    return rows;
-  });
-
-  function updatePayment(idx, val) {
-    const updated = [...entries];
-    updated[idx] = { ...updated[idx], payment: parseFloat(val) || 0 };
-    setEntries(updated);
-  }
-
-  const totalPayments = entries.reduce((s, e) => s + e.payment, 0);
-
-  if (entries.length === 0) {
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-        <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-md p-6 relative">
-          <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
-            <X className="w-5 h-5" />
-          </button>
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">No Linked Expenses</h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-            No expenses are linked to any debts. Link expenses to debts on the Expenses page first.
-          </p>
-          <button onClick={onClose}
-            className="w-full py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg text-sm font-medium transition">
-            Close
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-lg p-6 relative max-h-[90vh] overflow-y-auto">
-        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
-          <X className="w-5 h-5" />
-        </button>
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
-          Lock In {MONTH_NAMES_FULL[currentMonth - 1]} Debt Payments
-        </h2>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-          Review payment amounts, then lock in to apply them to your debt balances.
-        </p>
-
-        <div className="space-y-4">
-          {entries.map((entry, idx) => (
-            <div key={entry.debtId} className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
-              <div className="flex items-center justify-between mb-2">
-                <div>
-                  <h3 className="font-medium text-gray-900 dark:text-white">{entry.name}</h3>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    Current balance: {formatCurrency(entry.currentBalance)}
-                  </p>
-                </div>
-              </div>
-              {/* Linked expense breakdown */}
-              <div className="space-y-1 mb-3">
-                {entry.linkedItems.map((li) => (
-                  <div key={li.id} className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
-                    <span>{li.name}</span>
-                    <span>{formatCurrency(li.amount)}</span>
-                  </div>
-                ))}
-              </div>
-              <div className="flex items-center gap-3">
-                <label className="text-sm text-gray-700 dark:text-gray-300 font-medium">Total Payment:</label>
-                <input type="number" min="0" step="0.01" value={entry.payment}
-                  onChange={(e) => updatePayment(idx, e.target.value)}
-                  className="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm text-right" />
-              </div>
-              <p className="text-xs text-gray-400 mt-1">
-                New balance: {formatCurrency(Math.max(0, entry.currentBalance - entry.payment))}
-              </p>
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-          <div className="flex justify-between items-center mb-4">
-            <span className="text-sm font-semibold text-gray-900 dark:text-white">Total Payments</span>
-            <span className="text-lg font-bold text-emerald-600">{formatCurrency(totalPayments)}</span>
-          </div>
-          <div className="flex gap-3">
-            <button onClick={onClose}
-              className="flex-1 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition">
-              Cancel
-            </button>
-            <button onClick={() => onLock(entries)}
-              className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition flex items-center justify-center gap-2">
-              <Lock className="w-4 h-4" /> Lock In & Apply
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function Debt() {
   const { debts, loading, addDebt, updateDebt, removeDebt } = useDebts();
   const { loanGroups, loading: groupsLoading, addLoanGroup, updateLoanGroup, removeLoanGroup } = useLoanGroups();
   const { expenses: fixedExpensesList } = useFixedExpenses();
   const { expenses: variableExpensesList } = useExpenses();
-  const { logs: debtLogs, lockMonth: lockDebtMonth, unlockMonth: unlockDebtMonth } = useMonthlyDebtLog();
   usePrivacy();
   const { isSimpleMode, toggleMode } = useAppMode();
   const [modalOpen, setModalOpen] = useState(false);
@@ -610,14 +478,6 @@ export default function Debt() {
   const [groupModalOpen, setGroupModalOpen] = useState(false);
   const [editGroup, setEditGroup] = useState(null);
   const [deleteGroup, setDeleteGroup] = useState(null);
-  const [showLockModal, setShowLockModal] = useState(false);
-
-  const now = new Date();
-  const currentMonth = now.getMonth() + 1;
-  const currentYear = now.getFullYear();
-  const yearMonth = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
-  const lockedDebtData = debtLogs[yearMonth];
-  const isDebtLocked = !!lockedDebtData;
 
   // All expenses linked to debts (exclude disabled optional expenses)
   const linkedExpenses = useMemo(() => {
@@ -709,74 +569,6 @@ export default function Debt() {
 
   const hasAny = debts.length > 0 || loanGroups.length > 0;
 
-  // Total linked expense payments for this month
-  const totalLinkedPayments = useMemo(() => {
-    return linkedExpenses.reduce((s, e) => s + getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth), 0);
-  }, [linkedExpenses, currentMonth]);
-
-  async function handleLockDebts(entries) {
-    // Apply payments: reduce debt balances
-    for (const entry of entries) {
-      if (entry.payment <= 0) continue;
-      if (entry.debtType === 'debt') {
-        const debt = debts.find((d) => d.id === entry.debtId);
-        if (debt) {
-          const newBalance = Math.max(0, (debt.balance || 0) - entry.payment);
-          await updateDebt(entry.debtId, { balance: newBalance });
-        }
-      } else if (entry.debtType === 'loanGroup') {
-        const group = loanGroups.find((g) => g.id === entry.debtId);
-        if (group) {
-          const subLoans = group.subLoans || [];
-          const totalBal = subLoans.reduce((s, sl) => s + (sl.balance || 0), 0);
-          // Distribute payment proportionally by balance
-          const updatedSubLoans = subLoans.map((sl) => {
-            const share = totalBal > 0 ? (sl.balance || 0) / totalBal : 0;
-            const subPayment = entry.payment * share;
-            return { ...sl, balance: Math.max(0, (sl.balance || 0) - subPayment) };
-          });
-          await updateLoanGroup(entry.debtId, { subLoans: updatedSubLoans });
-        }
-      }
-    }
-    // Save the log
-    await lockDebtMonth(yearMonth, { entries, totalPayments: entries.reduce((s, e) => s + e.payment, 0) });
-    setShowLockModal(false);
-  }
-
-  async function handleUnlockDebts() {
-    if (!lockedDebtData?.entries) return;
-    // Reverse: add payments back to balances
-    for (const entry of lockedDebtData.entries) {
-      if (entry.payment <= 0) continue;
-      if (entry.debtType === 'debt') {
-        const debt = debts.find((d) => d.id === entry.debtId);
-        if (debt) {
-          await updateDebt(entry.debtId, { balance: (debt.balance || 0) + entry.payment });
-        }
-      } else if (entry.debtType === 'loanGroup') {
-        const group = loanGroups.find((g) => g.id === entry.debtId);
-        if (group) {
-          const subLoans = group.subLoans || [];
-          // Reverse proportional distribution using original balances in entry
-          const originalTotal = entry.currentBalance || 0;
-          const updatedSubLoans = subLoans.map((sl) => {
-            const currentSubTotal = subLoans.reduce((s, x) => s + (x.balance || 0), 0);
-            const restoredTotal = currentSubTotal + entry.payment;
-            // We need to add back proportionally. Since we distributed proportionally by balance when subtracting,
-            // we'll add back based on current share of the restored total. But since sub-loan ratios are preserved,
-            // this is the best we can do.
-            const share = restoredTotal > 0 ? (sl.balance || 0) / currentSubTotal : 0;
-            const addBack = entry.payment * share;
-            return { ...sl, balance: (sl.balance || 0) + addBack };
-          });
-          await updateLoanGroup(entry.debtId, { subLoans: updatedSubLoans });
-        }
-      }
-    }
-    await unlockDebtMonth(yearMonth);
-  }
-
   if (loading || groupsLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -846,57 +638,6 @@ export default function Debt() {
             <p className="text-sm text-gray-500 dark:text-gray-400">Est. Total Interest</p>
             <p className="text-2xl font-bold text-gray-700 dark:text-gray-300">{formatCurrency(summary.totalInterest)}</p>
           </div>
-        </div>
-      )}
-
-      {/* Debt Lock-In Card */}
-      {hasAny && linkedExpenses.length > 0 && (
-        <div className={`rounded-xl p-5 text-white ${isDebtLocked ? 'bg-gradient-to-r from-blue-600 to-indigo-700' : 'bg-gradient-to-r from-orange-500 to-rose-600'}`}>
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                {isDebtLocked ? <Lock className="w-4 h-4" /> : <Landmark className="w-4 h-4" />}
-                <h2 className="text-sm font-medium text-white/80">{MONTH_NAMES_FULL[currentMonth - 1]} {currentYear} Payments</h2>
-              </div>
-              {isDebtLocked ? (
-                <>
-                  <p className="text-3xl font-bold">{formatCurrency(lockedDebtData.totalPayments)}</p>
-                  <p className="text-sm text-white/70 mt-1">
-                    Payments locked — applied to {lockedDebtData.entries?.length || 0} debt(s)
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p className="text-3xl font-bold">{formatCurrency(totalLinkedPayments)}</p>
-                  <p className="text-sm text-white/70 mt-1">
-                    {linkedExpenses.length} linked expense{linkedExpenses.length !== 1 ? 's' : ''} ready to apply
-                  </p>
-                </>
-              )}
-            </div>
-            <div>
-              {isDebtLocked ? (
-                <button onClick={handleUnlockDebts}
-                  className="flex items-center gap-2 px-3 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium transition">
-                  <Unlock className="w-4 h-4" /> Unlock
-                </button>
-              ) : (
-                <button onClick={() => setShowLockModal(true)}
-                  className="flex items-center gap-2 px-3 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium transition">
-                  <Lock className="w-4 h-4" /> Lock In
-                </button>
-              )}
-            </div>
-          </div>
-          {isDebtLocked && lockedDebtData.entries && (
-            <div className="mt-3 pt-3 border-t border-white/20">
-              <div className="flex flex-wrap gap-3">
-                {lockedDebtData.entries.map((entry) => (
-                  <span key={entry.debtId} className="text-sm">{entry.name}: {formatCurrency(entry.payment)}</span>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       )}
 
@@ -1065,17 +806,6 @@ export default function Debt() {
           name={deleteGroup.name}
           onClose={() => setDeleteGroup(null)}
           onConfirm={() => { removeLoanGroup(deleteGroup.id); setDeleteGroup(null); }}
-        />
-      )}
-      {showLockModal && (
-        <DebtLockInModal
-          debts={debts}
-          loanGroups={loanGroups}
-          linkedExpenses={linkedExpenses}
-          currentMonth={currentMonth}
-          lockedData={lockedDebtData}
-          onClose={() => setShowLockModal(false)}
-          onLock={handleLockDebts}
         />
       )}
     </div>
