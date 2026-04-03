@@ -1,1 +1,12 @@
 @import "tailwindcss";
+
+/* Safe area for iOS PWA standalone mode */
+:root {
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+}
+
+html {
+  padding-top: var(--sat);
+  padding-bottom: var(--sab);
+}
