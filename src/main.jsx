@@ -23,3 +23,10 @@ createRoot(document.getElementById('root')).render(
     </HashRouter>
   </StrictMode>,
 )
+
+// Register service worker for PWA
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/personal_budget/sw.js').catch(() => {});
+  });
+}
