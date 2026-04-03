@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Receipt, Plus, Trash2, Pencil, Info, Calculator, X, Settings, ChevronDown, ChevronUp, Lock, Unlock, DollarSign, Banknote } from 'lucide-react';
+import { Receipt, Plus, Trash2, Pencil, Info, Calculator, X, Settings, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Lock, Unlock, DollarSign, Banknote, Check } from 'lucide-react';
 import { useIncomeStreams, useRetirement, useExpenses, useFixedExpenses, useMonthlyIncomeLog, useMonthlyExpenseLog, useCurrentBalance, useBudgetProfiles, useTaxProfile, useDebts, useLoanGroups } from '../hooks/useFirestore';
 import { FREQUENCIES, NEEDS_MONTH_PICKER, MONTH_NAMES, MONTH_NAMES_FULL, defaultMonthsForFrequency, getAmountForMonth, toAnnual, formatCurrency, formatCurrencyShort, getPeriodsPerYear, getStreamAmount, getStreamMonthTotal } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
@@ -447,7 +447,7 @@ function ConfirmDelete({ name, onClose, onConfirm }) {
 
 // ─── Expense Lock-In Modal ───
 
-function ExpenseLockInModal({ fixedExpenses, variableExpenses, income, currentBalance, currentMonth, lockedData, optedProfiles, onClose, onLock }) {
+function ExpenseLockInModal({ fixedExpenses, variableExpenses, income, currentBalance, currentMonth, lockedData, optedProfiles, debts, loanGroups, onClose, onLock }) {
   const [fixedEntries, setFixedEntries] = useState(() => {
     if (lockedData?.fixedEntries) return lockedData.fixedEntries;
     return fixedExpenses.filter((e) => !(e.isOptional && e.disabled)).map((e) => ({
@@ -472,6 +472,40 @@ function ExpenseLockInModal({ fixedExpenses, variableExpenses, income, currentBa
     if (lockedData?.splitOverrides) return lockedData.splitOverrides;
     return null; // null = even split
   });
+
+  // Build debt entries from linked expenses
+  const allExpenses = [...fixedExpenses.filter((e) => !(e.isOptional && e.disabled)), ...variableExpenses];
+  const debtEntries = useMemo(() => {
+    if (lockedData?.debtEntries) return lockedData.debtEntries;
+    const rows = [];
+    debts.forEach((d) => {
+      const linked = allExpenses.filter((e) => e.linkedDebtId === d.id && e.linkedDebtType === 'debt');
+      if (linked.length === 0) return;
+      const totalPayment = linked.reduce((s, e) => s + getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth), 0);
+      rows.push({
+        debtId: d.id,
+        debtType: 'debt',
+        name: d.name,
+        currentBalance: d.balance,
+        payment: totalPayment,
+        linkedItems: linked.map((e) => ({ id: e.id, name: e.name, amount: getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth) })),
+      });
+    });
+    loanGroups.forEach((g) => {
+      const linked = allExpenses.filter((e) => e.linkedDebtId === g.id && e.linkedDebtType === 'loanGroup');
+      if (linked.length === 0) return;
+      const totalPayment = linked.reduce((s, e) => s + getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth), 0);
+      rows.push({
+        debtId: g.id,
+        debtType: 'loanGroup',
+        name: g.name,
+        currentBalance: (g.subLoans || []).reduce((s, sl) => s + (sl.balance || 0), 0),
+        payment: totalPayment,
+        linkedItems: linked.map((e) => ({ id: e.id, name: e.name, amount: getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth) })),
+      });
+    });
+    return rows;
+  }, [debts, loanGroups, allExpenses, currentMonth, lockedData]);
 
   const fixedTotal = fixedEntries.reduce((s, e) => s + (parseFloat(e.actual) || 0), 0);
   const varTotal = varEntries.reduce((s, e) => s + (parseFloat(e.actual) || 0), 0);
@@ -607,7 +641,35 @@ function ExpenseLockInModal({ fixedExpenses, variableExpenses, income, currentBa
             <p className="text-sm text-amber-600 dark:text-amber-400 mb-4">No budget profiles are opted into spending money split. Edit a profile to enable it.</p>
           )}
 
-          <div className="flex gap-3">
+          {/* Linked Debt Payments */}
+          {debtEntries.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+              <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Debt Payments Applied</h4>
+              <div className="space-y-2">
+                {debtEntries.map((entry) => (
+                  <div key={entry.debtId} className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-sm font-medium text-gray-900 dark:text-white">{entry.name}</span>
+                      <span className="text-sm font-medium text-emerald-600">-{formatCurrency(entry.payment)}</span>
+                    </div>
+                    <p className="text-xs text-gray-400">Balance: {formatCurrency(entry.currentBalance)} → {formatCurrency(Math.max(0, entry.currentBalance - entry.payment))}</p>
+                    {entry.linkedItems.length > 1 && (
+                      <div className="mt-1 space-y-0.5">
+                        {entry.linkedItems.map((li) => (
+                          <div key={li.id} className="flex justify-between text-xs text-gray-400">
+                            <span>{li.name}</span>
+                            <span>{formatCurrency(li.amount)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-3 mt-4">
             <button onClick={onClose}
               className="flex-1 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition">Cancel</button>
             <button onClick={() => {
@@ -627,6 +689,7 @@ function ExpenseLockInModal({ fixedExpenses, variableExpenses, income, currentBa
                 balanceAmount: useBalance ? balanceAmount : null,
                 splitOverrides: splitOverrides || null,
                 profileAmounts: finalAmounts,
+                debtEntries: debtEntries.length > 0 ? debtEntries : null,
               });
             }}
               className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition flex items-center justify-center gap-2">
@@ -835,8 +898,8 @@ export default function Expenses() {
   const { profile: taxProfile, saveTaxProfile } = useTaxProfile();
   const { expenses, addExpense, updateExpense, removeExpense } = useExpenses();
   const { expenses: fixedExpensesList, addExpense: addFixed, updateExpense: updateFixed, removeExpense: removeFixed } = useFixedExpenses();
-  const { debts } = useDebts();
-  const { loanGroups } = useLoanGroups();
+  const { debts, updateDebt } = useDebts();
+  const { loanGroups, updateLoanGroup } = useLoanGroups();
   const { logs: incomeLogs } = useMonthlyIncomeLog();
   const { logs: expenseLogs, lockMonth: lockExpenseMonth, unlockMonth: unlockExpenseMonth } = useMonthlyExpenseLog();
   const { balance: currentBalance, saveBalance } = useCurrentBalance();
@@ -850,8 +913,10 @@ export default function Expenses() {
   const [showLockModal, setShowLockModal] = useState(false);
 
   const now = new Date();
-  const currentMonth = now.getMonth() + 1;
-  const currentYear = now.getFullYear();
+  const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
+  const [selectedYear, setSelectedYear] = useState(now.getFullYear());
+  const currentMonth = selectedMonth;
+  const currentYear = selectedYear;
   const yearMonth = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
   const lockedExpenseData = expenseLogs[yearMonth];
   const isExpenseLocked = !!lockedExpenseData;
@@ -899,13 +964,18 @@ export default function Expenses() {
   // Fixed expenses totals (exclude disabled optional expenses)
   const activeFixedExpenses = fixedExpensesList.filter((e) => !(e.isOptional && e.disabled));
   const totalFixedThisMonth = activeFixedExpenses.reduce((sum, e) => sum + getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth), 0);
+  // When using bank balance, exclude already-paid expenses from spending money calculation
+  const alreadyPaidTotal = currentBalance?.enabled
+    ? activeFixedExpenses.filter((e) => e.alreadyPaid).reduce((sum, e) => sum + getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth), 0)
+    : 0;
+  const totalFixedBillableThisMonth = totalFixedThisMonth - alreadyPaidTotal;
 
   // Variable expenses totals
   const totalVariableThisMonth = expenses.reduce((sum, e) => sum + getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth), 0);
   const totalVariableAnnual = expenses.reduce((sum, e) => sum + toAnnual(e.amount, e.frequency), 0);
 
   const totalFixedAnnual = activeFixedExpenses.reduce((sum, e) => sum + toAnnual(e.amount, e.frequency), 0);
-  const totalAllExpensesThisMonth = totalFixedThisMonth + totalVariableThisMonth;
+  const totalAllExpensesThisMonth = totalFixedBillableThisMonth + totalVariableThisMonth;
 
   const netAfterAll = deductions.netAnnual - totalVariableAnnual - totalFixedAnnual;
 
@@ -975,6 +1045,30 @@ export default function Expenses() {
         }
       }
     }
+    // Apply debt payments: reduce balances
+    if (payload.debtEntries) {
+      for (const entry of payload.debtEntries) {
+        if (entry.payment <= 0) continue;
+        if (entry.debtType === 'debt') {
+          const debt = debts.find((d) => d.id === entry.debtId);
+          if (debt) {
+            await updateDebt(entry.debtId, { balance: Math.max(0, (debt.balance || 0) - entry.payment) });
+          }
+        } else if (entry.debtType === 'loanGroup') {
+          const group = loanGroups.find((g) => g.id === entry.debtId);
+          if (group) {
+            const subLoans = group.subLoans || [];
+            const totalBal = subLoans.reduce((s, sl) => s + (sl.balance || 0), 0);
+            const updatedSubLoans = subLoans.map((sl) => {
+              const share = totalBal > 0 ? (sl.balance || 0) / totalBal : 0;
+              const subPayment = entry.payment * share;
+              return { ...sl, balance: Math.max(0, (sl.balance || 0) - subPayment) };
+            });
+            await updateLoanGroup(entry.debtId, { subLoans: updatedSubLoans });
+          }
+        }
+      }
+    }
     setShowLockModal(false);
   }
 
@@ -987,6 +1081,30 @@ export default function Expenses() {
           await updateBudgetProfile(profileId, {
             totalBudget: Math.max(0, (profile.totalBudget || 0) - amount),
           });
+        }
+      }
+    }
+    // Reverse debt payments: add amounts back
+    if (lockedExpenseData?.debtEntries) {
+      for (const entry of lockedExpenseData.debtEntries) {
+        if (entry.payment <= 0) continue;
+        if (entry.debtType === 'debt') {
+          const debt = debts.find((d) => d.id === entry.debtId);
+          if (debt) {
+            await updateDebt(entry.debtId, { balance: (debt.balance || 0) + entry.payment });
+          }
+        } else if (entry.debtType === 'loanGroup') {
+          const group = loanGroups.find((g) => g.id === entry.debtId);
+          if (group) {
+            const subLoans = group.subLoans || [];
+            const totalBal = subLoans.reduce((s, sl) => s + (sl.balance || 0), 0);
+            const updatedSubLoans = subLoans.map((sl) => {
+              const share = totalBal > 0 ? (sl.balance || 0) / totalBal : 0;
+              const subPayment = entry.payment * share;
+              return { ...sl, balance: (sl.balance || 0) + subPayment };
+            });
+            await updateLoanGroup(entry.debtId, { subLoans: updatedSubLoans });
+          }
         }
       }
     }
@@ -1011,7 +1129,21 @@ export default function Expenses() {
           <div>
             <div className="flex items-center gap-2 mb-1">
               {isExpenseLocked ? <Lock className="w-4 h-4" /> : <Receipt className="w-4 h-4" />}
-              <h2 className="text-sm font-medium text-white/80">{MONTH_NAMES_FULL[currentMonth - 1]} {currentYear}</h2>
+              <div className="flex items-center gap-1">
+                <button onClick={() => {
+                  if (selectedMonth === 1) { setSelectedMonth(12); setSelectedYear(y => y - 1); }
+                  else setSelectedMonth(m => m - 1);
+                }} className="p-0.5 rounded hover:bg-white/20 transition">
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <h2 className="text-sm font-medium text-white/80">{MONTH_NAMES_FULL[currentMonth - 1]} {currentYear}</h2>
+                <button onClick={() => {
+                  if (selectedMonth === 12) { setSelectedMonth(1); setSelectedYear(y => y + 1); }
+                  else setSelectedMonth(m => m + 1);
+                }} className="p-0.5 rounded hover:bg-white/20 transition">
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
             </div>
             {isExpenseLocked ? (
               <>
@@ -1230,6 +1362,7 @@ export default function Expenses() {
                   <th className="text-right px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Amount</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Frequency</th>
                   <th className="text-right px-4 py-3 font-medium text-gray-500 dark:text-gray-400">This Month</th>
+                  {currentBalance?.enabled && <th className="text-center px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Paid</th>}
                   <th className="text-right px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Actions</th>
                 </tr>
               </thead>
@@ -1241,8 +1374,9 @@ export default function Expenses() {
                       : debts.find((d) => d.id === e.linkedDebtId)?.name) || null
                     : null;
                   const isDisabled = e.isOptional && e.disabled;
+                  const isAlreadyPaid = currentBalance?.enabled && e.alreadyPaid;
                   return (
-                  <tr key={e.id} className={`hover:bg-gray-50 dark:hover:bg-gray-700/30 ${isDisabled ? 'opacity-40' : ''}`}>
+                  <tr key={e.id} className={`hover:bg-gray-50 dark:hover:bg-gray-700/30 ${isDisabled ? 'opacity-40' : ''} ${isAlreadyPaid && !isDisabled ? 'opacity-60' : ''}`}>
                     <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">
                       <div className="flex items-center gap-2">
                         {e.isOptional && (
@@ -1254,6 +1388,7 @@ export default function Expenses() {
                         <span className={isDisabled ? 'line-through' : ''}>
                           {e.name}
                           {e.isOptional && <span className="ml-1.5 text-[10px] font-medium uppercase text-amber-500 dark:text-amber-400">optional</span>}
+                          {isAlreadyPaid && <span className="ml-1.5 text-[10px] font-medium uppercase text-emerald-500 dark:text-emerald-400">paid</span>}
                         </span>
                         {linkedName && <span className="ml-2 text-xs text-blue-500 dark:text-blue-400">→ {linkedName}</span>}
                       </div>
@@ -1261,6 +1396,14 @@ export default function Expenses() {
                     <td className="px-4 py-3 text-right text-gray-900 dark:text-white">{formatCurrency(e.amount)}</td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{freqLabel(e.frequency)}</td>
                     <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-white">{isDisabled ? '—' : formatCurrency(getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth))}</td>
+                    {currentBalance?.enabled && (
+                      <td className="px-4 py-3 text-center">
+                        <input type="checkbox" checked={e.alreadyPaid || false}
+                          onChange={() => updateFixed(e.id, { alreadyPaid: !e.alreadyPaid })}
+                          disabled={isDisabled}
+                          className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-emerald-600 focus:ring-emerald-500 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50" />
+                      </td>
+                    )}
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
                         <button onClick={() => { setEditingFixed(e); setShowFixedModal(true); }}
@@ -1279,7 +1422,7 @@ export default function Expenses() {
               </tbody>
               <tfoot>
                 <tr className="bg-gray-50 dark:bg-gray-700/50 font-semibold">
-                  <td className="px-4 py-3 text-gray-900 dark:text-white" colSpan={3}>Total Fixed</td>
+                  <td className="px-4 py-3 text-gray-900 dark:text-white" colSpan={currentBalance?.enabled ? 4 : 3}>Total Fixed{alreadyPaidTotal > 0 ? ` (${formatCurrency(alreadyPaidTotal)} already paid)` : ''}</td>
                   <td className="px-4 py-3 text-right text-gray-900 dark:text-white">{formatCurrency(totalFixedThisMonth)}</td>
                   <td></td>
                 </tr>
@@ -1333,7 +1476,19 @@ export default function Expenses() {
                       {e.name}
                       {linkedName && <span className="ml-2 text-xs text-blue-500 dark:text-blue-400">→ {linkedName}</span>}
                     </td>
-                    <td className="px-4 py-3 text-right text-gray-900 dark:text-white">{formatCurrency(e.amount)}</td>
+                    <td className="px-4 py-3 text-right text-gray-900 dark:text-white">
+                      <input
+                        type="number" min="0" step="0.01"
+                        key={`${e.id}-${e.amount}`}
+                        defaultValue={e.amount || ''}
+                        onBlur={(evt) => {
+                          const val = parseFloat(evt.target.value) || 0;
+                          if (val !== e.amount) updateExpense(e.id, { amount: val });
+                        }}
+                        onKeyDown={(evt) => { if (evt.key === 'Enter') evt.target.blur(); }}
+                        className="w-24 px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm text-right focus:ring-2 focus:ring-emerald-500 outline-none"
+                      />
+                    </td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{freqLabel(e.frequency)}</td>
                     <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-white">{formatCurrency(getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth))}</td>
                     <td className="px-4 py-3 text-right">
@@ -1375,8 +1530,10 @@ export default function Expenses() {
             <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(startingAmount)}</span>
           </div>
           <div className="flex justify-between text-sm">
-            <span className="text-gray-600 dark:text-gray-400">Fixed Expenses</span>
-            <span className="font-medium text-red-500">-{formatCurrency(totalFixedThisMonth)}</span>
+            <span className="text-gray-600 dark:text-gray-400">
+              Fixed Expenses{alreadyPaidTotal > 0 && ` (${formatCurrency(alreadyPaidTotal)} already paid)`}
+            </span>
+            <span className="font-medium text-red-500">-{formatCurrency(totalFixedBillableThisMonth)}</span>
           </div>
           <div className="flex justify-between text-sm">
             <span className="text-gray-600 dark:text-gray-400">Variable Expenses</span>
@@ -1547,6 +1704,8 @@ export default function Expenses() {
           currentMonth={currentMonth}
           lockedData={lockedExpenseData}
           optedProfiles={optedProfiles}
+          debts={debts}
+          loanGroups={loanGroups}
           onClose={() => setShowLockModal(false)}
           onLock={handleLockExpenses}
         />

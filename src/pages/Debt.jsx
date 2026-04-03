@@ -619,9 +619,9 @@ export default function Debt() {
   const lockedDebtData = debtLogs[yearMonth];
   const isDebtLocked = !!lockedDebtData;
 
-  // All expenses linked to debts
+  // All expenses linked to debts (exclude disabled optional expenses)
   const linkedExpenses = useMemo(() => {
-    return [...fixedExpensesList, ...variableExpensesList].filter((e) => e.linkedDebtId);
+    return [...fixedExpensesList, ...variableExpensesList].filter((e) => e.linkedDebtId && !(e.isOptional && e.disabled));
   }, [fixedExpensesList, variableExpensesList]);
 
   // Count linked expenses per debt for display

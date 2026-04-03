@@ -1,5 +1,5 @@
 ﻿import { useState, useMemo } from 'react';
-import { DollarSign, Plus, Trash2, Pencil, Info, X, Lock, Unlock, Check, ToggleLeft, ToggleRight } from 'lucide-react';
+import { DollarSign, Plus, Trash2, Pencil, Info, X, Lock, Unlock, Check, ToggleLeft, ToggleRight, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useIncomeStreams, useMonthlyIncomeLog } from '../hooks/useFirestore';
 import { useAppMode } from '../contexts/AppModeContext';
 import { FREQUENCIES, NEEDS_MONTH_PICKER, MONTH_NAMES, MONTH_NAMES_FULL, defaultMonthsForFrequency, getAmountForMonth, toAnnual, formatCurrency, formatCurrencyShort, getStreamAmount, getStreamMonthTotal, getBonusForMonth } from '../lib/financial';
@@ -409,8 +409,10 @@ export default function Income() {
   const [actualAmounts, setActualAmounts] = useState({});
 
   const now = new Date();
-  const currentMonth = now.getMonth() + 1; // 1-indexed
-  const currentYear = now.getFullYear();
+  const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
+  const [selectedYear, setSelectedYear] = useState(now.getFullYear());
+  const currentMonth = selectedMonth;
+  const currentYear = selectedYear;
   const yearMonth = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
   const lockedData = logs[yearMonth];
   const isLocked = !!lockedData;
@@ -518,7 +520,21 @@ export default function Income() {
           <div>
             <div className="flex items-center gap-2 mb-1">
               {isLocked ? <Lock className="w-4 h-4" /> : <DollarSign className="w-4 h-4" />}
-              <h2 className="text-sm font-medium text-white/80">{MONTH_NAMES_FULL[currentMonth - 1]} {currentYear} Income</h2>
+              <div className="flex items-center gap-1">
+                <button onClick={() => {
+                  if (selectedMonth === 1) { setSelectedMonth(12); setSelectedYear(y => y - 1); }
+                  else setSelectedMonth(m => m - 1);
+                }} className="p-0.5 rounded hover:bg-white/20 transition">
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <h2 className="text-sm font-medium text-white/80">{MONTH_NAMES_FULL[currentMonth - 1]} {currentYear} Income</h2>
+                <button onClick={() => {
+                  if (selectedMonth === 12) { setSelectedMonth(1); setSelectedYear(y => y + 1); }
+                  else setSelectedMonth(m => m + 1);
+                }} className="p-0.5 rounded hover:bg-white/20 transition">
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
             </div>
             <p className="text-3xl font-bold">{formatCurrency(isLocked ? lockedData.total : thisMonthEstimated)}</p>
             <p className="text-sm text-white/70 mt-1">
