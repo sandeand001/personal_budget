@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Wallet, Plus, Trash2, Pencil, X, ChevronDown, ChevronRight, ShoppingCart, Info } from 'lucide-react';
+import { Wallet, Plus, Trash2, Pencil, X, ChevronDown, ChevronRight, ShoppingCart, Info, RefreshCw } from 'lucide-react';
 import { useBudgetProfiles, useBudgetTransactions } from '../hooks/useFirestore';
 import { formatCurrency, formatCurrencyShort } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
@@ -211,10 +211,12 @@ function TransactionModal({ onClose, onSave, categories }) {
 
 // ─── Profile Card (collapsible) ───
 
-function ProfileCard({ profile, onEdit, onDelete }) {
+function ProfileCard({ profile, onEdit, onDelete, onUpdateBudget }) {
   const { transactions, loading, addTransaction, removeTransaction } = useBudgetTransactions(profile.id);
   const [expanded, setExpanded] = useState(false);
   const [txnModal, setTxnModal] = useState(false);
+  const [adjusting, setAdjusting] = useState(false);
+  const [adjustValue, setAdjustValue] = useState('');
 
   const spent = useMemo(() => {
     const byCategory = {};
@@ -251,12 +253,48 @@ function ProfileCard({ profile, onEdit, onDelete }) {
         </div>
         <div className="flex items-center gap-4">
           <div className="text-right">
-            <p className={cn('text-lg font-bold', remaining >= 0 ? 'text-emerald-600' : 'text-red-600')}>
-              {formatCurrency(remaining)}
-            </p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">remaining</p>
+            {adjusting ? (
+              <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                <span className="text-sm text-gray-500">$</span>
+                <input
+                  type="number" min="0" step="0.01"
+                  value={adjustValue}
+                  onChange={(e) => setAdjustValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const newRemaining = parseFloat(adjustValue) || 0;
+                      const newBudget = totalSpent + newRemaining;
+                      onUpdateBudget(profile.id, { totalBudget: newBudget });
+                      setAdjusting(false);
+                    } else if (e.key === 'Escape') {
+                      setAdjusting(false);
+                    }
+                  }}
+                  onBlur={() => {
+                    const newRemaining = parseFloat(adjustValue) || 0;
+                    const newBudget = totalSpent + newRemaining;
+                    onUpdateBudget(profile.id, { totalBudget: newBudget });
+                    setAdjusting(false);
+                  }}
+                  autoFocus
+                  className="w-24 px-2 py-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm text-right focus:ring-2 focus:ring-emerald-500 outline-none"
+                />
+              </div>
+            ) : (
+              <>
+                <p className={cn('text-lg font-bold', remaining >= 0 ? 'text-emerald-600' : 'text-red-600')}>
+                  {formatCurrency(remaining)}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">remaining</p>
+              </>
+            )}
           </div>
           <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+            <button onClick={() => { setAdjustValue(remaining.toFixed(2)); setAdjusting(true); }}
+              title="Adjust balance"
+              className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition">
+              <RefreshCw className="w-4 h-4 text-gray-400" />
+            </button>
             <button onClick={() => onEdit(profile)} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition">
               <Pencil className="w-4 h-4 text-gray-400" />
             </button>
@@ -461,6 +499,7 @@ export default function SpendingMoney() {
                 setModalOpen(true);
               }}
               onDelete={setDeleteItem}
+              onUpdateBudget={updateProfile}
             />
           ))}
         </div>
