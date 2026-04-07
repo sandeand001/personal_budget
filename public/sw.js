@@ -1,4 +1,4 @@
-const CACHE_NAME = 'personal-budget-v1';
+const CACHE_NAME = 'personal-budget-__BUILD_TIMESTAMP__';
 const PRECACHE_URLS = [
   '/personal_budget/',
   '/personal_budget/index.html',

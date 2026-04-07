@@ -147,18 +147,40 @@ function ProfileModal({ onClose, onSave, initial }) {
 
 // ─── Transaction Modal ───
 
-function TransactionModal({ onClose, onSave, categories }) {
-  const [form, setForm] = useState({
+function TransactionModal({ onClose, onSave, categories, initial, onAddCategory }) {
+  const [form, setForm] = useState(initial ? {
+    description: initial.description || '',
+    amount: initial.amount?.toString() || '',
+    category: initial.category || categories[0]?.name || '',
+    date: initial.date || new Date().toISOString().slice(0, 10),
+  } : {
     description: '',
     amount: '',
     category: categories[0]?.name || '',
     date: new Date().toISOString().slice(0, 10),
   });
+  const [addingCategory, setAddingCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
 
   function handleSubmit(e) {
     e.preventDefault();
     onSave({ ...form, amount: parseFloat(form.amount) || 0 });
     onClose();
+  }
+
+  function handleAddCategory() {
+    const trimmed = newCategoryName.trim();
+    if (!trimmed) return;
+    if (categories.some((c) => c.name.toLowerCase() === trimmed.toLowerCase())) {
+      setForm({ ...form, category: trimmed });
+      setAddingCategory(false);
+      setNewCategoryName('');
+      return;
+    }
+    onAddCategory(trimmed);
+    setForm({ ...form, category: trimmed });
+    setAddingCategory(false);
+    setNewCategoryName('');
   }
 
   return (
@@ -167,7 +189,9 @@ function TransactionModal({ onClose, onSave, categories }) {
         <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
           <X className="w-5 h-5" />
         </button>
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Log Purchase</h2>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+          {initial ? 'Edit Purchase' : 'Log Purchase'}
+        </h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
@@ -192,16 +216,40 @@ function TransactionModal({ onClose, onSave, categories }) {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Category</label>
-            <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}
-              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm">
-              {categories.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
-            </select>
+            {addingCategory ? (
+              <div className="flex gap-2">
+                <input type="text" value={newCategoryName}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddCategory(); } if (e.key === 'Escape') setAddingCategory(false); }}
+                  placeholder="New category name"
+                  autoFocus
+                  className="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none text-sm" />
+                <button type="button" onClick={handleAddCategory}
+                  className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition">Add</button>
+                <button type="button" onClick={() => setAddingCategory(false)}
+                  className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition">Cancel</button>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}
+                  className="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm">
+                  {categories.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
+                </select>
+                <button type="button" onClick={() => setAddingCategory(true)}
+                  title="Add new category"
+                  className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition">
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+            )}
           </div>
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose}
               className="flex-1 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition">Cancel</button>
             <button type="submit"
-              className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition">Log Purchase</button>
+              className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition">
+              {initial ? 'Save Changes' : 'Log Purchase'}
+            </button>
           </div>
         </form>
       </div>
@@ -212,9 +260,10 @@ function TransactionModal({ onClose, onSave, categories }) {
 // ─── Profile Card (collapsible) ───
 
 function ProfileCard({ profile, onEdit, onDelete, onUpdateBudget }) {
-  const { transactions, loading, addTransaction, removeTransaction } = useBudgetTransactions(profile.id);
+  const { transactions, loading, addTransaction, updateTransaction, removeTransaction } = useBudgetTransactions(profile.id);
   const [expanded, setExpanded] = useState(false);
   const [txnModal, setTxnModal] = useState(false);
+  const [editTxn, setEditTxn] = useState(null);
   const [adjusting, setAdjusting] = useState(false);
   const [adjustValue, setAdjustValue] = useState('');
 
@@ -400,9 +449,14 @@ function ProfileCard({ profile, onEdit, onDelete, onUpdateBudget }) {
                       </td>
                       <td className="px-3 py-2 text-right font-medium text-gray-900 dark:text-white">{formatCurrency(t.amount)}</td>
                       <td className="px-3 py-2">
-                        <button onClick={() => removeTransaction(t.id)} className="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition">
-                          <Trash2 className="w-3.5 h-3.5 text-red-400" />
-                        </button>
+                        <div className="flex gap-1 justify-end">
+                          <button onClick={() => { setEditTxn(t); setTxnModal(true); }} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition">
+                            <Pencil className="w-3.5 h-3.5 text-gray-400" />
+                          </button>
+                          <button onClick={() => removeTransaction(t.id)} className="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition">
+                            <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -414,8 +468,19 @@ function ProfileCard({ profile, onEdit, onDelete, onUpdateBudget }) {
           {txnModal && (
             <TransactionModal
               categories={profile.categories || []}
-              onClose={() => setTxnModal(false)}
-              onSave={addTransaction}
+              initial={editTxn}
+              onClose={() => { setTxnModal(false); setEditTxn(null); }}
+              onSave={(data) => {
+                if (editTxn) {
+                  updateTransaction(editTxn.id, data);
+                } else {
+                  addTransaction(data);
+                }
+              }}
+              onAddCategory={(name) => {
+                const updatedCategories = [...(profile.categories || []), { name, allocated: 0 }];
+                onUpdateBudget(profile.id, { categories: updatedCategories });
+              }}
             />
           )}
         </div>
