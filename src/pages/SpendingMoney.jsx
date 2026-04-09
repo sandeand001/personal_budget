@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { Wallet, Plus, Trash2, Pencil, X, ChevronDown, ChevronRight, ShoppingCart, Info, RefreshCw } from 'lucide-react';
 import { useBudgetProfiles, useBudgetTransactions } from '../hooks/useFirestore';
 import { formatCurrency, formatCurrencyShort } from '../lib/financial';
@@ -475,7 +476,7 @@ function ProfileCard({ profile, onEdit, onUpdateBudget }) {
         </div>
       )}
 
-      {txnModal && (
+      {txnModal && createPortal(
         <TransactionModal
           categories={profile.categories || []}
           initial={editTxn}
@@ -491,7 +492,8 @@ function ProfileCard({ profile, onEdit, onUpdateBudget }) {
             const updatedCategories = [...(profile.categories || []), { name, allocated: 0 }];
             onUpdateBudget(profile.id, { categories: updatedCategories });
           }}
-        />
+        />,
+        document.body
       )}
     </div>
   );
