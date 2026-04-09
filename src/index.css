@@ -8,5 +8,8 @@
 
 html {
   padding-top: var(--sat);
+}
+
+.safe-bottom {
   padding-bottom: var(--sab);
 }

@@ -14,7 +14,7 @@ import {
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useAppMode } from '../contexts/AppModeContext';
-import { useIncomeStreams, useRetirement, useExpenses, useFixedExpenses, useBudgetProfiles, useVacations, useDebts, useLoanGroups, useTaxProfile } from '../hooks/useFirestore';
+import { useIncomeStreams, useRetirement, useExpenses, useFixedExpenses, useBudgetProfiles, useBudgetRemaining, useVacations, useDebts, useLoanGroups, useTaxProfile } from '../hooks/useFirestore';
 import { FREQUENCIES, toAnnual, formatCurrency, getPeriodsPerYear, getAmountForMonth, MONTH_NAMES_FULL, getStreamAmount, getStreamMonthTotal } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
 import { calculateAllStreamDeductions } from '../lib/taxEngine';
@@ -119,11 +119,8 @@ export default function Dashboard() {
   // Refund / owed
   const refundOwed = deductions.refundOrOwed || 0;
 
-  // Budget remaining (sum across all profiles — not perfect without transactions but shows budget total)
-  const totalBudgetMonthly = useMemo(
-    () => budgetProfiles.reduce((s, p) => s + (p.totalBudget || 0), 0),
-    [budgetProfiles]
-  );
+  // Budget remaining (sum of budget - spent across all profiles)
+  const totalBudgetRemaining = useBudgetRemaining(budgetProfiles);
 
   // Debt total (individual debts + loan groups)
   const totalDebt = useMemo(() => {
@@ -268,7 +265,7 @@ export default function Dashboard() {
         />
         <SummaryCard
           title="Spending Money"
-          value={formatCurrency(totalBudgetMonthly)}
+          value={formatCurrency(totalBudgetRemaining)}
           subtitle={budgetProfiles.length > 0 ? `${budgetProfiles.length} profile${budgetProfiles.length !== 1 ? 's' : ''}` : 'No budget set'}
           icon={Wallet}
           color="bg-purple-500"

@@ -31,6 +31,13 @@ const navItems = [
   { to: '/settings', label: 'Settings', icon: Settings },
 ];
 
+const bottomNavItems = [
+  { to: '/', label: 'Home', icon: LayoutDashboard },
+  { to: '/spending', label: 'Spending', icon: Wallet },
+  { to: '/vacations', label: 'Vacations', icon: Plane },
+  { to: '/settings', label: 'Settings', icon: Settings },
+];
+
 export default function AppLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -165,9 +172,33 @@ export default function AppLayout() {
       </header>
 
       {/* Page Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 pb-24 md:pb-6">
         <Outlet />
       </main>
+
+      {/* Mobile Bottom Nav */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 safe-bottom">
+        <div className="flex items-center justify-around h-14">
+          {bottomNavItems.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.to === '/'}
+              className={({ isActive }) =>
+                cn(
+                  'flex flex-col items-center justify-center gap-0.5 flex-1 h-full text-[10px] font-medium transition',
+                  isActive
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-gray-500 dark:text-gray-400'
+                )
+              }
+            >
+              <item.icon className="w-5 h-5" />
+              {item.label}
+            </NavLink>
+          ))}
+        </div>
+      </nav>
     </div>
   );
 }

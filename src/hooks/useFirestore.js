@@ -215,6 +215,34 @@ export function useBudgetTransactions(profileId) {
   return { transactions, loading, addTransaction, updateTransaction, removeTransaction };
 }
 
+// ─── Budget Remaining (across all profiles) ───
+
+export function useBudgetRemaining(profiles) {
+  const { householdId } = useHousehold();
+  const [spentByProfile, setSpentByProfile] = useState({});
+
+  useEffect(() => {
+    if (!householdId || !profiles.length) return;
+    const unsubs = profiles.map((p) => {
+      const q = query(
+        collection(db, 'households', householdId, 'budgetProfiles', p.id, 'transactions')
+      );
+      return onSnapshot(q, (snap) => {
+        const total = snap.docs.reduce((s, d) => s + (d.data().amount || 0), 0);
+        setSpentByProfile((prev) => ({ ...prev, [p.id]: total }));
+      });
+    });
+    return () => unsubs.forEach((u) => u());
+  }, [householdId, profiles.map((p) => p.id).join(',')]);
+
+  const totalRemaining = profiles.reduce(
+    (s, p) => s + (p.totalBudget || 0) - (spentByProfile[p.id] || 0),
+    0
+  );
+
+  return totalRemaining;
+}
+
 // ─── Vacations ───
 
 export function useVacations() {
