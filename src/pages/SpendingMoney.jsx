@@ -25,7 +25,7 @@ const COLORS = ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444', '#06b6d4'
 
 // ─── Profile Modal ───
 
-function ProfileModal({ onClose, onSave, initial }) {
+function ProfileModal({ onClose, onSave, onDelete, initial }) {
   const [form, setForm] = useState(initial || {
     name: '',
     totalBudget: '',
@@ -132,6 +132,12 @@ function ProfileModal({ onClose, onSave, initial }) {
           </div>
 
           <div className="flex gap-3 pt-2">
+            {initial && onDelete && (
+              <button type="button" onClick={() => onDelete(initial)}
+                className="py-2 px-4 border border-red-300 dark:border-red-600 rounded-lg text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition flex items-center gap-1">
+                <Trash2 className="w-4 h-4" /> Delete
+              </button>
+            )}
             <button type="button" onClick={onClose}
               className="flex-1 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition">Cancel</button>
             <button type="submit"
@@ -259,7 +265,7 @@ function TransactionModal({ onClose, onSave, categories, initial, onAddCategory 
 
 // ─── Profile Card (collapsible) ───
 
-function ProfileCard({ profile, onEdit, onDelete, onUpdateBudget }) {
+function ProfileCard({ profile, onEdit, onUpdateBudget }) {
   const { transactions, loading, addTransaction, updateTransaction, removeTransaction } = useBudgetTransactions(profile.id);
   const [expanded, setExpanded] = useState(false);
   const [txnModal, setTxnModal] = useState(false);
@@ -347,8 +353,10 @@ function ProfileCard({ profile, onEdit, onDelete, onUpdateBudget }) {
             <button onClick={() => onEdit(profile)} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition">
               <Pencil className="w-4 h-4 text-gray-400" />
             </button>
-            <button onClick={() => onDelete(profile)} className="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition">
-              <Trash2 className="w-4 h-4 text-red-400" />
+            <button onClick={() => { setEditTxn(null); setTxnModal(true); }}
+              title="Log purchase"
+              className="p-1.5 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg transition">
+              <ShoppingCart className="w-4 h-4 text-emerald-500" />
             </button>
           </div>
         </div>
@@ -563,7 +571,6 @@ export default function SpendingMoney() {
                 });
                 setModalOpen(true);
               }}
-              onDelete={setDeleteItem}
               onUpdateBudget={updateProfile}
             />
           ))}
@@ -576,6 +583,7 @@ export default function SpendingMoney() {
           initial={editItem}
           onClose={() => { setModalOpen(false); setEditItem(null); }}
           onSave={(data) => editItem ? updateProfile(editItem.id, data) : addProfile(data)}
+          onDelete={(item) => { setModalOpen(false); setEditItem(null); setDeleteItem(item); }}
         />
       )}
       {deleteItem && (
