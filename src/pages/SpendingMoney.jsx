@@ -472,26 +472,26 @@ function ProfileCard({ profile, onEdit, onUpdateBudget }) {
               </table>
             </div>
           )}
-
-          {txnModal && (
-            <TransactionModal
-              categories={profile.categories || []}
-              initial={editTxn}
-              onClose={() => { setTxnModal(false); setEditTxn(null); }}
-              onSave={(data) => {
-                if (editTxn) {
-                  updateTransaction(editTxn.id, data);
-                } else {
-                  addTransaction(data);
-                }
-              }}
-              onAddCategory={(name) => {
-                const updatedCategories = [...(profile.categories || []), { name, allocated: 0 }];
-                onUpdateBudget(profile.id, { categories: updatedCategories });
-              }}
-            />
-          )}
         </div>
+      )}
+
+      {txnModal && (
+        <TransactionModal
+          categories={profile.categories || []}
+          initial={editTxn}
+          onClose={() => { setTxnModal(false); setEditTxn(null); }}
+          onSave={(data) => {
+            if (editTxn) {
+              updateTransaction(editTxn.id, data);
+            } else {
+              addTransaction(data);
+            }
+          }}
+          onAddCategory={(name) => {
+            const updatedCategories = [...(profile.categories || []), { name, allocated: 0 }];
+            onUpdateBudget(profile.id, { categories: updatedCategories });
+          }}
+        />
       )}
     </div>
   );
