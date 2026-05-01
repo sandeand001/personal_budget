@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Wallet, Plus, Trash2, Pencil, X, ChevronDown, ChevronRight, ShoppingCart, Info, RefreshCw } from 'lucide-react';
+import { Wallet, Plus, Trash2, Pencil, X, ChevronDown, ChevronRight, ShoppingCart, Info, RefreshCw, CirclePlus } from 'lucide-react';
 import { useBudgetProfiles, useBudgetTransactions } from '../hooks/useFirestore';
 import { formatCurrency, formatCurrencyShort } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
@@ -264,6 +264,54 @@ function TransactionModal({ onClose, onSave, categories, initial, onAddCategory 
   );
 }
 
+// ─── Add Money Modal ───
+
+function AddMoneyModal({ onClose, onConfirm, profileName }) {
+  const [amount, setAmount] = useState('');
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    const value = parseFloat(amount);
+    if (!value || value <= 0) return;
+    onConfirm(value);
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-sm p-6 relative">
+        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+          <X className="w-5 h-5" />
+        </button>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">Add Money</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Add funds to <strong>{profileName}</strong></p>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Amount ($)</label>
+            <input
+              type="number"
+              required
+              min="0.01"
+              step="0.01"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="0.00"
+              autoFocus
+              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
+            />
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose}
+              className="flex-1 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition">Cancel</button>
+            <button type="submit"
+              className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition">Add Money</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ─── Profile Card (collapsible) ───
 
 function ProfileCard({ profile, onEdit, onUpdateBudget }) {
@@ -273,6 +321,7 @@ function ProfileCard({ profile, onEdit, onUpdateBudget }) {
   const [editTxn, setEditTxn] = useState(null);
   const [adjusting, setAdjusting] = useState(false);
   const [adjustValue, setAdjustValue] = useState('');
+  const [addMoneyModal, setAddMoneyModal] = useState(false);
 
   const spent = useMemo(() => {
     const byCategory = {};
@@ -346,6 +395,11 @@ function ProfileCard({ profile, onEdit, onUpdateBudget }) {
             )}
           </div>
           <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+            <button onClick={() => setAddMoneyModal(true)}
+              title="Add money"
+              className="p-1.5 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg transition">
+              <CirclePlus className="w-4 h-4 text-emerald-500" />
+            </button>
             <button onClick={() => { setAdjustValue(remaining.toFixed(2)); setAdjusting(true); }}
               title="Adjust balance"
               className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition">
@@ -491,6 +545,17 @@ function ProfileCard({ profile, onEdit, onUpdateBudget }) {
           onAddCategory={(name) => {
             const updatedCategories = [...(profile.categories || []), { name, allocated: 0 }];
             onUpdateBudget(profile.id, { categories: updatedCategories });
+          }}
+        />,
+        document.body
+      )}
+
+      {addMoneyModal && createPortal(
+        <AddMoneyModal
+          profileName={profile.name}
+          onClose={() => setAddMoneyModal(false)}
+          onConfirm={(amount) => {
+            onUpdateBudget(profile.id, { totalBudget: (profile.totalBudget || 0) + amount });
           }}
         />,
         document.body
