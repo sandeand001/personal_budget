@@ -359,16 +359,18 @@ function ProfileCard({ profile, onEdit, onUpdateBudget }) {
   const filteredTotal = filteredTransactions.reduce((s, t) => s + (t.amount || 0), 0);
   const displayedTransactions = isFiltering ? filteredTransactions : filteredTransactions.slice(0, 20);
 
+  // Category spend for the active filter period — drives the breakdown, pie, and bars
   const spent = useMemo(() => {
     const byCategory = {};
     (profile.categories || []).forEach((c) => { byCategory[c.name] = 0; });
-    transactions.forEach((t) => {
+    filteredTransactions.forEach((t) => {
       byCategory[t.category] = (byCategory[t.category] || 0) + (t.amount || 0);
     });
     return byCategory;
-  }, [transactions, profile.categories]);
+  }, [filteredTransactions, profile.categories]);
 
-  const totalSpent = Object.values(spent).reduce((s, v) => s + v, 0);
+  // All-time spend drives the account balance in the header (independent of the view filter)
+  const totalSpent = useMemo(() => transactions.reduce((s, t) => s + (t.amount || 0), 0), [transactions]);
   const remaining = (profile.totalBudget || 0) - totalSpent;
 
   const pieData = (profile.categories || [])
@@ -455,77 +457,8 @@ function ProfileCard({ profile, onEdit, onUpdateBudget }) {
 
       {expanded && (
         <div className="px-5 pb-5 border-t border-gray-200 dark:border-gray-700 pt-4 space-y-5">
-          {/* Category breakdown */}
-          <div className="space-y-2">
-            {(profile.categories || []).map((cat) => {
-              const s = spent[cat.name] || 0;
-              const alloc = cat.allocated || 0;
-              const pct = alloc > 0 ? Math.min((s / alloc) * 100, 100) : (s > 0 ? 100 : 0);
-              const over = s > alloc && alloc > 0;
-              return (
-                <div key={cat.name}>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="text-gray-700 dark:text-gray-300">{cat.name}</span>
-                    <span className={cn('font-medium', over ? 'text-red-600' : 'text-gray-700 dark:text-gray-300')}>
-                      {formatCurrency(s)} / {formatCurrency(alloc)}
-                    </span>
-                  </div>
-                  <div className="w-full h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
-                    <div className={cn('h-full rounded-full transition-all', over ? 'bg-red-500' : 'bg-emerald-500')}
-                      style={{ width: `${pct}%` }} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Charts */}
-          {transactions.length > 0 && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <div>
-                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Spending by Category</h4>
-                <ResponsiveContainer width="100%" height={200}>
-                  <PieChart>
-                    <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70}
-                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
-                      {pieData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                    </Pie>
-                    <Tooltip formatter={(v) => formatCurrency(v)} />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-              <div>
-                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Budget vs Spent</h4>
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={barData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                    <YAxis tickFormatter={(v) => formatCurrencyShort(v)} tick={{ fontSize: 11 }} />
-                    <Tooltip formatter={(v) => formatCurrency(v)} />
-                    <Legend />
-                    <Bar dataKey="Budget" fill="#10b981" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="Spent" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          )}
-
-          {/* Log transaction + Recent transactions */}
-          <div className="flex items-center justify-between">
-            <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              {isFiltering
-                ? `Purchases (${filteredTransactions.length}) · ${formatCurrency(filteredTotal)}`
-                : `Recent Purchases (${transactions.length})`}
-            </h4>
-            <button onClick={() => setTxnModal(true)}
-              className="flex items-center gap-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-medium transition">
-              <ShoppingCart className="w-3.5 h-3.5" /> Log Purchase
-            </button>
-          </div>
-
-          {/* Filter controls */}
-          <div className="flex flex-wrap items-center gap-2">
+          {/* Filter — applies to everything below (breakdown, charts, and log) */}
+          <div className="flex flex-wrap items-center gap-2 pb-4 border-b border-gray-200 dark:border-gray-700">
             <span className="flex items-center gap-1.5 text-xs font-medium text-gray-500 dark:text-gray-400">
               <Filter className="w-3.5 h-3.5" /> Filter
             </span>
@@ -579,6 +512,81 @@ function ProfileCard({ profile, onEdit, onUpdateBudget }) {
                 <X className="w-3 h-3" /> Clear
               </button>
             )}
+
+            {isFiltering && (
+              <span className="text-xs text-gray-400 dark:text-gray-500 ml-auto">
+                Showing {filteredTransactions.length} of {transactions.length} purchases
+              </span>
+            )}
+          </div>
+
+          {/* Category breakdown */}
+          <div className="space-y-2">
+            {(profile.categories || []).map((cat) => {
+              const s = spent[cat.name] || 0;
+              const alloc = cat.allocated || 0;
+              const pct = alloc > 0 ? Math.min((s / alloc) * 100, 100) : (s > 0 ? 100 : 0);
+              const over = s > alloc && alloc > 0;
+              return (
+                <div key={cat.name}>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="text-gray-700 dark:text-gray-300">{cat.name}</span>
+                    <span className={cn('font-medium', over ? 'text-red-600' : 'text-gray-700 dark:text-gray-300')}>
+                      {formatCurrency(s)} / {formatCurrency(alloc)}
+                    </span>
+                  </div>
+                  <div className="w-full h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                    <div className={cn('h-full rounded-full transition-all', over ? 'bg-red-500' : 'bg-emerald-500')}
+                      style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Charts */}
+          {filteredTransactions.length > 0 && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div>
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Spending by Category</h4>
+                <ResponsiveContainer width="100%" height={200}>
+                  <PieChart>
+                    <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70}
+                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+                      {pieData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                    </Pie>
+                    <Tooltip formatter={(v) => formatCurrency(v)} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div>
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Budget vs Spent</h4>
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={barData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                    <YAxis tickFormatter={(v) => formatCurrencyShort(v)} tick={{ fontSize: 11 }} />
+                    <Tooltip formatter={(v) => formatCurrency(v)} />
+                    <Legend />
+                    <Bar dataKey="Budget" fill="#10b981" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="Spent" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          {/* Log transaction + Recent transactions */}
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {isFiltering
+                ? `Purchases (${filteredTransactions.length}) · ${formatCurrency(filteredTotal)}`
+                : `Recent Purchases (${transactions.length})`}
+            </h4>
+            <button onClick={() => setTxnModal(true)}
+              className="flex items-center gap-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-medium transition">
+              <ShoppingCart className="w-3.5 h-3.5" /> Log Purchase
+            </button>
           </div>
 
           {transactions.length === 0 ? (
