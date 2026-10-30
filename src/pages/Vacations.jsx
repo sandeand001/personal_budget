@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Plane, Plus, Trash2, Pencil, X, ChevronDown, ChevronRight, Target, Check, DollarSign, Info } from 'lucide-react';
 import { useVacations, useVacationExpenses, useVacationContributions } from '../hooks/useFirestore';
-import { formatCurrency } from '../lib/financial';
+import { formatCurrency, getSavingsCategories, getVacationTotals, roundCurrency } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
 import { cn } from '../lib/utils';
 import {
@@ -32,7 +32,7 @@ const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'
 
 function VacationModal({ onClose, onSave, initial }) {
   const [form, setForm] = useState(() => {
-    if (initial) return initial;
+    if (initial) return { ...initial, savingsCategories: getSavingsCategories(initial) };
     return {
       name: '',
       destination: '',
@@ -60,14 +60,14 @@ function VacationModal({ onClose, onSave, initial }) {
     setForm({ ...form, savingsCategories: categories.filter((_, idx) => idx !== i) });
   }
 
-  const totalFromCategories = categories.reduce((s, c) => s + (parseFloat(c.goal) || 0), 0);
+  const totalFromCategories = roundCurrency(categories.reduce((s, c) => s + (parseFloat(c.goal) || 0), 0));
 
   function handleSubmit(e) {
     e.preventDefault();
     const savingsCategories = categories
       .filter((c) => c.name.trim())
       .map((c) => ({ name: c.name.trim(), goal: parseFloat(c.goal) || 0 }));
-    const savingsGoal = savingsCategories.reduce((s, c) => s + c.goal, 0);
+    const savingsGoal = roundCurrency(savingsCategories.reduce((s, c) => s + c.goal, 0));
     onSave({ ...form, savingsGoal, savingsCategories });
     onClose();
   }
@@ -298,12 +298,11 @@ function VacationCard({ vacation, onEdit, onDelete }) {
   const [expModal, setExpModal] = useState(false);
   const [conModal, setConModal] = useState(false);
 
-  const totalExpenses = useMemo(() => expenses.reduce((s, e) => s + (e.amount || 0), 0), [expenses]);
-  const paidExpenses = useMemo(() => expenses.filter((e) => e.isPaid).reduce((s, e) => s + (e.amount || 0), 0), [expenses]);
-  const totalContributions = useMemo(() => contributions.reduce((s, c) => s + (c.amount || 0), 0), [contributions]);
+  const { totalExpenses, paidExpenses, totalContributions, savingsPct } = useMemo(
+    () => getVacationTotals(vacation, expenses, contributions), [vacation, expenses, contributions],
+  );
   const savingsGoal = vacation.savingsGoal || 0;
-  const savingsCategories = vacation.savingsCategories || [];
-  const savingsPct = savingsGoal > 0 ? Math.min((totalContributions / savingsGoal) * 100, 100) : 0;
+  const savingsCategories = getSavingsCategories(vacation);
 
   const daysUntil = useMemo(() => {
     if (!vacation.startDate) return null;

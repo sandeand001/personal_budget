@@ -11,9 +11,13 @@ import {
   getDoc,
   setDoc,
   serverTimestamp,
+  runTransaction,
+  increment,
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useHousehold } from '../contexts/HouseholdContext';
+import { recordExpenseLock, reverseExpenseLock } from '../lib/expenseLedger';
+import { roundCurrency } from '../lib/financial';
 
 // ─── Income Streams ───
 
@@ -174,7 +178,14 @@ export function useBudgetProfiles() {
     return deleteDoc(doc(db, 'households', householdId, 'budgetProfiles', id));
   }
 
-  return { profiles, loading, addProfile, updateProfile, removeProfile };
+  async function addMoney(id, amount) {
+    if (!Number.isFinite(amount) || amount <= 0) throw new RangeError('Enter an amount greater than zero.');
+    return updateDoc(doc(db, 'households', householdId, 'budgetProfiles', id), {
+      totalBudget: increment(roundCurrency(amount)),
+    });
+  }
+
+  return { profiles, loading, addProfile, updateProfile, removeProfile, addMoney };
 }
 
 // ─── Budget Transactions ───
@@ -451,10 +462,10 @@ export function useMonthlyIncomeLog() {
     return unsub;
   }, [householdId]);
 
-  async function lockMonth(yearMonth, entries, total) {
+  async function lockMonth(yearMonth, entries, total, incomeBasis, netTotal) {
     return setDoc(
       doc(db, 'households', householdId, 'monthlyIncomeLogs', yearMonth),
-      { entries, total, lockedAt: serverTimestamp() }
+      { entries, total, ...(incomeBasis ? { incomeBasis } : {}), ...(netTotal != null ? { netTotal } : {}), lockedAt: serverTimestamp() }
     );
   }
 
@@ -526,14 +537,16 @@ export function useMonthlyExpenseLog() {
   }, [householdId]);
 
   async function lockMonth(yearMonth, payload) {
-    return setDoc(
-      doc(db, 'households', householdId, 'monthlyExpenseLogs', yearMonth),
-      { ...payload, lockedAt: serverTimestamp() }
-    );
+    return runTransaction(db, (transaction) => recordExpenseLock(transaction, {
+      ref: (name, id) => doc(db, 'households', householdId, name, id),
+      yearMonth, payload, lockedAt: serverTimestamp(),
+    }));
   }
 
   async function unlockMonth(yearMonth) {
-    return deleteDoc(doc(db, 'households', householdId, 'monthlyExpenseLogs', yearMonth));
+    return runTransaction(db, (transaction) => reverseExpenseLock(transaction, {
+      ref: (name, id) => doc(db, 'households', householdId, name, id), yearMonth,
+    }));
   }
 
   return { logs, loading, lockMonth, unlockMonth };

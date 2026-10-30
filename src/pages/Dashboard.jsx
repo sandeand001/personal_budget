@@ -14,10 +14,10 @@ import {
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useAppMode } from '../contexts/AppModeContext';
-import { useIncomeStreams, useRetirement, useExpenses, useFixedExpenses, useBudgetProfiles, useBudgetRemaining, useVacations, useDebts, useLoanGroups, useTaxProfile } from '../hooks/useFirestore';
-import { FREQUENCIES, toAnnual, formatCurrency, getPeriodsPerYear, getAmountForMonth, MONTH_NAMES_FULL, getStreamAmount, getStreamMonthTotal } from '../lib/financial';
+import { useIncomeStreams, useRetirement, useExpenses, useFixedExpenses, useBudgetProfiles, useBudgetRemaining, useVacations, useDebts, useLoanGroups, useTaxProfile, useMonthlyIncomeLog, useMonthlyExpenseLog } from '../hooks/useFirestore';
+import { buildMonthlyOverview, FREQUENCIES, toAnnual, formatCurrency, getPeriodsPerYear, MONTH_NAMES_FULL, getStreamAmount, getStreamAnnualTotal } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
-import { calculateAllStreamDeductions } from '../lib/taxEngine';
+import { calculateAllStreamDeductions, calculateMonthlyTakeHome, TAX_YEAR } from '../lib/taxEngine';
 import { cn } from '../lib/utils';
 
 function SummaryCard({ title, value, subtitle, icon: Icon, color, to }) {
@@ -57,6 +57,8 @@ export default function Dashboard() {
   const { vacations } = useVacations();
   const { debts } = useDebts();
   const { loanGroups } = useLoanGroups();
+  const { logs: incomeLogs } = useMonthlyIncomeLog();
+  const { logs: expenseLogs } = useMonthlyExpenseLog();
 
   const now = new Date();
   const currentMonth = now.getMonth() + 1;
@@ -64,13 +66,14 @@ export default function Dashboard() {
   const monthName = MONTH_NAMES_FULL[currentMonth - 1];
 
   // Income totals — actual for this month
-  const totalGrossThisMonth = useMemo(
-    () => streams.reduce((s, i) => s + getStreamMonthTotal(i, isSimpleMode, currentMonth, currentYear), 0),
-    [streams, currentMonth, currentYear, isSimpleMode]
-  );
+  const monthlyOverview = useMemo(() => buildMonthlyOverview({
+    streams, expenses: variableExpenses, fixedExpenses, incomeLogs, expenseLogs,
+    year: currentYear, isSimpleMode,
+  }), [streams, variableExpenses, fixedExpenses, incomeLogs, expenseLogs, currentYear, isSimpleMode]);
+  const totalGrossThisMonth = monthlyOverview[currentMonth - 1].income;
   const totalGrossAnnual = useMemo(
-    () => streams.reduce((s, i) => s + toAnnual(getStreamAmount(i, isSimpleMode), i.frequency), 0),
-    [streams, isSimpleMode]
+    () => streams.reduce((s, i) => s + getStreamAnnualTotal(i, isSimpleMode, currentYear), 0),
+    [streams, isSimpleMode, currentYear]
   );
 
   // Tax deductions (per-stream)
@@ -78,7 +81,7 @@ export default function Dashboard() {
     const preparedStreams = streams.map((s) => ({
       ...s,
       amount: s.grossAmount ?? s.amount ?? 0,
-      periodsPerYear: getPeriodsPerYear(s.frequency),
+      periodsPerYear: getPeriodsPerYear(s.frequency, s.applicableMonths),
     }));
     const result = calculateAllStreamDeductions(preparedStreams, retirement || {}, taxProfile || {});
     const t = result.totals;
@@ -86,12 +89,19 @@ export default function Dashboard() {
       totalGrossAnnual: t.totalGrossAnnual,
       totalDeductions: t.totalDeductions,
       netAnnual: t.totalNet,
-      refundOrOwed: t.totalExtraWithholding,
+      extraWithholding: t.totalExtraWithholding,
+      streamResults: result.streams,
     };
   }, [streams, retirement, taxProfile]);
 
+  const monthlyTakeHome = calculateMonthlyTakeHome({
+    incomeStreams: streams, streamResults: deductions.streamResults, isSimpleMode,
+    month: currentMonth, year: currentYear,
+    incomeLog: incomeLogs[`${currentYear}-${String(currentMonth).padStart(2, '0')}`],
+  });
+
   const variableAnnual = useMemo(
-    () => variableExpenses.reduce((s, e) => s + toAnnual(e.amount, e.frequency), 0),
+    () => variableExpenses.reduce((s, e) => s + toAnnual(e.amount, e.frequency, e.applicableMonths), 0),
     [variableExpenses]
   );
 
@@ -101,23 +111,15 @@ export default function Dashboard() {
   );
 
   const fixedAnnual = useMemo(
-    () => activeFixedExpenses.reduce((s, e) => s + toAnnual(e.amount, e.frequency), 0),
+    () => activeFixedExpenses.reduce((s, e) => s + toAnnual(e.amount, e.frequency, e.applicableMonths), 0),
     [activeFixedExpenses]
   );
 
   const totalExpensesAnnual = variableAnnual + fixedAnnual;
 
   // Actual expenses for this month
-  const totalExpensesThisMonth = useMemo(
-    () => [...activeFixedExpenses, ...variableExpenses].reduce((s, e) => s + getAmountForMonth(e.amount, e.frequency, e.applicableMonths, currentMonth, currentYear), 0),
-    [activeFixedExpenses, variableExpenses, currentMonth, currentYear]
-  );
+  const totalExpensesThisMonth = monthlyOverview[currentMonth - 1].expenses;
   const allExpenses = [...activeFixedExpenses, ...variableExpenses];
-
-  const netAnnual = deductions.netAnnual - totalExpensesAnnual;
-
-  // Refund / owed
-  const refundOwed = deductions.refundOrOwed || 0;
 
   // Budget remaining (sum of budget - spent across all profiles)
   const totalBudgetRemaining = useBudgetRemaining(budgetProfiles);
@@ -178,7 +180,7 @@ export default function Dashboard() {
               <Info className="w-4 h-4 inline" />
             </summary>
             <div className="absolute mt-2 z-20 w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 shadow-lg text-sm text-gray-600 dark:text-gray-400 space-y-2">
-              <p><strong>Detailed Mode</strong> (default) gives you the full picture: gross income, tax profile with W-4 settings, auto-calculated or manual paystub deductions, FICA, 401(k), and a projected tax refund/owed estimate.</p>
+              <p><strong>Detailed Mode</strong> (default) shows gross income, per-stream tax estimates or manual paystub deductions, FICA, 401(k), and extra withholding. These estimates are not a household tax return or refund prediction.</p>
               <p><strong>Simple Mode</strong> is for people who just want to enter the take-home pay they actually receive (net income). Tax calculations, 401(k), and paycheck deductions are all skipped. The Expenses page only shows bills you pay yourself — no tax or retirement sections.</p>
               <p className="italic text-xs">Tip: You can switch between modes at any time. Your data is preserved — switching modes only changes what the app shows you.</p>
             </div>
@@ -230,7 +232,7 @@ export default function Dashboard() {
         ) : (
           <>
             <SummaryCard
-              title={`${monthName} Gross Income`}
+              title={`${monthName} ${incomeLogs[`${currentYear}-${String(currentMonth).padStart(2, '0')}`]?.incomeBasis === 'take_home' ? 'Locked Take-Home' : 'Gross Income'}`}
               value={formatCurrency(totalGrossThisMonth)}
               subtitle={streams.length > 0 ? `${streams.length} stream${streams.length !== 1 ? 's' : ''} · ${formatCurrency(totalGrossAnnual)}/yr` : 'No income streams yet'}
               icon={DollarSign}
@@ -238,19 +240,19 @@ export default function Dashboard() {
               to="/income"
             />
             <SummaryCard
-              title="Net After Tax"
-              value={formatCurrency(deductions.netAnnual / 12)}
-              subtitle={`Annual avg after deductions · ${formatCurrency(deductions.netAnnual)}/yr`}
+              title={`${monthName} Take-Home`}
+              value={formatCurrency(monthlyTakeHome)}
+              subtitle={`After estimated deductions · ${formatCurrency(deductions.netAnnual)}/yr projected`}
               icon={TrendingUp}
               color="bg-blue-500"
               to="/expenses"
             />
             <SummaryCard
-              title={refundOwed >= 0 ? 'Est. Tax Refund' : 'Est. Tax Owed'}
-              value={formatCurrency(Math.abs(refundOwed))}
-              subtitle={refundOwed >= 0 ? 'Projected refund' : 'Projected amount owed'}
+              title="Extra Withholding"
+              value={formatCurrency(deductions.extraWithholding)}
+              subtitle={`${TAX_YEAR} annual estimate, not a refund prediction`}
               icon={Receipt}
-              color={refundOwed >= 0 ? 'bg-emerald-600' : 'bg-red-500'}
+              color="bg-emerald-600"
               to="/expenses"
             />
           </>

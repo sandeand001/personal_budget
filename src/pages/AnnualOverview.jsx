@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { CalendarRange, Lock, Calendar } from 'lucide-react';
-import { useIncomeStreams, useExpenses, useFixedExpenses, useMonthlyIncomeLog } from '../hooks/useFirestore';
-import { FREQUENCIES, MONTH_NAMES, MONTH_NAMES_FULL, getAmountForMonth, formatCurrency, formatCurrencyShort, getStreamAmount, getStreamMonthTotal } from '../lib/financial';
+import { useIncomeStreams, useExpenses, useFixedExpenses, useMonthlyIncomeLog, useMonthlyExpenseLog } from '../hooks/useFirestore';
+import { buildMonthlyOverview, FREQUENCIES, MONTH_NAMES, formatCurrency, formatCurrencyShort, getStreamAmount } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
 import { useAppMode } from '../contexts/AppModeContext';
 import { cn } from '../lib/utils';
@@ -14,50 +14,22 @@ export default function AnnualOverview() {
   const { expenses } = useExpenses();
   const { expenses: fixedExpensesList } = useFixedExpenses();
   const { logs } = useMonthlyIncomeLog();
+  const { logs: expenseLogs } = useMonthlyExpenseLog();
   const { isSimpleMode } = useAppMode();
   usePrivacy();
   const currentYear = new Date().getFullYear();
 
-  const monthlyData = useMemo(() => {
-    return Array.from({ length: 12 }, (_, i) => {
-      const month = i + 1;
-      const yearMonth = `${currentYear}-${String(month).padStart(2, '0')}`;
-      const locked = logs[yearMonth];
-
-      const income = locked
-        ? locked.total
-        : streams.reduce(
-            (sum, s) => sum + getStreamMonthTotal(s, isSimpleMode, month),
-            0
-          );
-      const fixedExp = fixedExpensesList.filter((e) => !(e.isOptional && e.disabled)).reduce(
-        (sum, e) => sum + getAmountForMonth(e.amount, e.frequency, e.applicableMonths, month),
-        0
-      );
-      const varExp = expenses.reduce(
-        (sum, e) => sum + getAmountForMonth(e.amount, e.frequency, e.applicableMonths, month),
-        0
-      );
-      return {
-        month,
-        name: MONTH_NAMES[i],
-        fullName: MONTH_NAMES_FULL[i],
-        income,
-        expenses: fixedExp + varExp,
-        fixedExpenses: fixedExp,
-        variableExpenses: varExp,
-        net: income - fixedExp - varExp,
-        isLocked: !!locked,
-      };
-    });
-  }, [streams, expenses, fixedExpensesList, logs, currentYear]);
+  const monthlyData = useMemo(() => buildMonthlyOverview({
+    streams, expenses, fixedExpenses: fixedExpensesList, incomeLogs: logs, expenseLogs,
+    year: currentYear, isSimpleMode,
+  }), [streams, expenses, fixedExpensesList, logs, expenseLogs, currentYear, isSimpleMode]);
 
   const annualIncome = monthlyData.reduce((s, m) => s + m.income, 0);
   const annualExpenses = monthlyData.reduce((s, m) => s + m.expenses, 0);
   const annualNet = annualIncome - annualExpenses;
 
   const irregularIncome = streams.filter((s) => ['quarterly', 'bimonthly', 'annual'].includes(s.frequency));
-  const irregularFixed = fixedExpensesList.filter((e) => ['quarterly', 'bimonthly', 'annual'].includes(e.frequency));
+  const irregularFixed = fixedExpensesList.filter((e) => !(e.isOptional && e.disabled) && ['quarterly', 'bimonthly', 'annual'].includes(e.frequency));
   const irregularExpenses = expenses.filter((e) => ['quarterly', 'bimonthly', 'annual'].includes(e.frequency));
 
   return (
@@ -68,7 +40,7 @@ export default function AnnualOverview() {
           <CalendarRange className="w-7 h-7 text-emerald-600" /> Annual Overview — {currentYear}
         </h1>
         <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">
-          Month-by-month breakdown of income vs expenses for the full year.
+          Month-by-month income and expenses, using locked actuals where available. {isSimpleMode ? 'Income is take-home pay.' : 'Income projections are gross; locked income retains the basis entered. Net is income less bills, not a tax-return total.'} Weekly and biweekly projections are calendar-weighted estimates, not exact payday counts.
         </p>
       </div>
 
@@ -128,7 +100,7 @@ export default function AnnualOverview() {
                   <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">
                     <span className="flex items-center gap-1.5">
                       {m.fullName}
-                      {m.isLocked && <Lock className="w-3 h-3 text-blue-500" title="Income locked in" />}
+                      {(m.isLocked || m.expensesLocked) && <Lock className="w-3 h-3 text-blue-500" title="Includes locked actuals" />}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-right text-gray-900 dark:text-white">{formatCurrency(m.income)}</td>

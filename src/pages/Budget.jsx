@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Wallet, Plus, Trash2, Pencil, X, ChevronDown, ChevronRight, ShoppingCart, Info, Calendar, BarChart3, Lock } from 'lucide-react';
-import { useBudgetProfiles, useBudgetTransactions, useIncomeStreams, useExpenses, useFixedExpenses, useMonthlyIncomeLog } from '../hooks/useFirestore';
-import { FREQUENCIES, MONTH_NAMES, MONTH_NAMES_FULL, getAmountForMonth, toMonthly, toAnnual, formatCurrency, formatCurrencyShort } from '../lib/financial';
+import { useBudgetProfiles, useBudgetTransactions, useIncomeStreams, useExpenses, useFixedExpenses, useMonthlyIncomeLog, useMonthlyExpenseLog } from '../hooks/useFirestore';
+import { buildMonthlyOverview, FREQUENCIES, MONTH_NAMES, formatCurrency, formatCurrencyShort, getBudgetSummary, getStreamAmount } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
 import { useAppMode } from '../contexts/AppModeContext';
 import { cn } from '../lib/utils';
@@ -217,27 +217,7 @@ function ProfileCard({ profile, onEdit, onDelete }) {
   const [expanded, setExpanded] = useState(false);
   const [txnModal, setTxnModal] = useState(false);
 
-  const spent = useMemo(() => {
-    const byCategory = {};
-    (profile.categories || []).forEach((c) => { byCategory[c.name] = 0; });
-    transactions.forEach((t) => {
-      byCategory[t.category] = (byCategory[t.category] || 0) + (t.amount || 0);
-    });
-    return byCategory;
-  }, [transactions, profile.categories]);
-
-  const totalSpent = Object.values(spent).reduce((s, v) => s + v, 0);
-  const remaining = (profile.totalBudget || 0) - totalSpent;
-
-  const pieData = (profile.categories || [])
-    .map((c) => ({ name: c.name, value: spent[c.name] || 0 }))
-    .filter((d) => d.value > 0);
-
-  const barData = (profile.categories || []).map((c) => ({
-    name: c.name.length > 10 ? c.name.slice(0, 10) + '…' : c.name,
-    Budget: c.allocated || 0,
-    Spent: spent[c.name] || 0,
-  }));
+  const { spent, remaining, pieData, barData } = useMemo(() => getBudgetSummary(profile, transactions), [profile, transactions]);
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
@@ -394,42 +374,14 @@ function AnnualOverview() {
   const { expenses } = useExpenses();
   const { expenses: fixedExpensesList } = useFixedExpenses();
   const { logs } = useMonthlyIncomeLog();
+  const { logs: expenseLogs } = useMonthlyExpenseLog();
   const { isSimpleMode } = useAppMode();
   const currentYear = new Date().getFullYear();
 
-  const monthlyData = useMemo(() => {
-    return Array.from({ length: 12 }, (_, i) => {
-      const month = i + 1;
-      const yearMonth = `${currentYear}-${String(month).padStart(2, '0')}`;
-      const locked = logs[yearMonth];
-
-      const income = locked
-        ? locked.total
-        : streams.reduce(
-            (sum, s) => sum + getAmountForMonth(s.amount, s.frequency, s.applicableMonths, month),
-            0
-          );
-      const fixedExp = fixedExpensesList.filter((e) => !(e.isOptional && e.disabled)).reduce(
-        (sum, e) => sum + getAmountForMonth(e.amount, e.frequency, e.applicableMonths, month),
-        0
-      );
-      const varExp = expenses.reduce(
-        (sum, e) => sum + getAmountForMonth(e.amount, e.frequency, e.applicableMonths, month),
-        0
-      );
-      return {
-        month,
-        name: MONTH_NAMES[i],
-        fullName: MONTH_NAMES_FULL[i],
-        income,
-        expenses: fixedExp + varExp,
-        fixedExpenses: fixedExp,
-        variableExpenses: varExp,
-        net: income - fixedExp - varExp,
-        isLocked: !!locked,
-      };
-    });
-  }, [streams, expenses, fixedExpensesList, logs, currentYear]);
+  const monthlyData = useMemo(() => buildMonthlyOverview({
+    streams, expenses, fixedExpenses: fixedExpensesList, incomeLogs: logs, expenseLogs,
+    year: currentYear, isSimpleMode,
+  }), [streams, expenses, fixedExpensesList, logs, expenseLogs, currentYear, isSimpleMode]);
 
   const annualIncome = monthlyData.reduce((s, m) => s + m.income, 0);
   const annualExpenses = monthlyData.reduce((s, m) => s + m.expenses, 0);
@@ -437,7 +389,7 @@ function AnnualOverview() {
 
   // Items that only occur in certain months
   const irregularIncome = streams.filter((s) => ['quarterly', 'bimonthly', 'annual'].includes(s.frequency));
-  const irregularFixed = fixedExpensesList.filter((e) => ['quarterly', 'bimonthly', 'annual'].includes(e.frequency));
+  const irregularFixed = fixedExpensesList.filter((e) => !(e.isOptional && e.disabled) && ['quarterly', 'bimonthly', 'annual'].includes(e.frequency));
   const irregularExpenses = expenses.filter((e) => ['quarterly', 'bimonthly', 'annual'].includes(e.frequency));
 
   return (
@@ -534,7 +486,7 @@ function AnnualOverview() {
             {irregularIncome.map((s) => (
               <div key={s.id} className="flex justify-between">
                 <span>+ {s.name} ({FREQUENCIES.find((f) => f.value === s.frequency)?.label})</span>
-                <span>{formatCurrency(s.amount)} in {(s.applicableMonths || []).map((m) => MONTH_NAMES[m - 1]).join(', ')}</span>
+                <span>{formatCurrency(getStreamAmount(s, isSimpleMode))} in {(s.applicableMonths || []).map((m) => MONTH_NAMES[m - 1]).join(', ')}</span>
               </div>
             ))}
             {irregularFixed.map((e) => (

@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Wallet, Plus, Trash2, Pencil, X, ChevronDown, ChevronRight, ShoppingCart, Info, RefreshCw, CirclePlus, Filter } from 'lucide-react';
 import { useBudgetProfiles, useBudgetTransactions } from '../hooks/useFirestore';
-import { formatCurrency, formatCurrencyShort } from '../lib/financial';
+import { formatCurrency, formatCurrencyShort, getBudgetSummary, roundCurrency } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
 import { cn } from '../lib/utils';
 import {
@@ -268,19 +268,34 @@ function TransactionModal({ onClose, onSave, categories, initial, onAddCategory 
 
 function AddMoneyModal({ onClose, onConfirm, profileName }) {
   const [amount, setAmount] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
     const value = parseFloat(amount);
-    if (!value || value <= 0) return;
-    onConfirm(value);
-    onClose();
+    if (!Number.isFinite(value) || value <= 0) {
+      setError('Enter an amount greater than zero.');
+      return;
+    }
+    if (saving) return;
+    setSaving(true);
+    setError('');
+    try {
+      await onConfirm(value);
+      onClose();
+    } catch (failure) {
+      console.error('Failed to add budget funds', failure);
+      setError(failure instanceof Error ? failure.message : 'Unable to add funds. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-sm p-6 relative">
-        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+        <button onClick={onClose} disabled={saving} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
           <X className="w-5 h-5" />
         </button>
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">Add Money</h2>
@@ -300,11 +315,12 @@ function AddMoneyModal({ onClose, onConfirm, profileName }) {
               className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
             />
           </div>
+          {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
           <div className="flex gap-3 pt-2">
-            <button type="button" onClick={onClose}
+            <button type="button" onClick={onClose} disabled={saving}
               className="flex-1 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition">Cancel</button>
-            <button type="submit"
-              className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition">Add Money</button>
+            <button type="submit" disabled={saving}
+              className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition">{saving ? 'Saving...' : 'Add Money'}</button>
           </div>
         </form>
       </div>
@@ -314,7 +330,7 @@ function AddMoneyModal({ onClose, onConfirm, profileName }) {
 
 // ─── Profile Card (collapsible) ───
 
-function ProfileCard({ profile, onEdit, onUpdateBudget }) {
+function ProfileCard({ profile, onEdit, onUpdateBudget, onAddMoney }) {
   const { transactions, loading, addTransaction, updateTransaction, removeTransaction } = useBudgetTransactions(profile.id);
   const [expanded, setExpanded] = useState(false);
   const [txnModal, setTxnModal] = useState(false);
@@ -360,28 +376,10 @@ function ProfileCard({ profile, onEdit, onUpdateBudget }) {
   const displayedTransactions = isFiltering ? filteredTransactions : filteredTransactions.slice(0, 20);
 
   // Category spend for the active filter period — drives the breakdown, pie, and bars
-  const spent = useMemo(() => {
-    const byCategory = {};
-    (profile.categories || []).forEach((c) => { byCategory[c.name] = 0; });
-    filteredTransactions.forEach((t) => {
-      byCategory[t.category] = (byCategory[t.category] || 0) + (t.amount || 0);
-    });
-    return byCategory;
-  }, [filteredTransactions, profile.categories]);
+  const { spent, pieData, barData } = useMemo(() => getBudgetSummary(profile, filteredTransactions), [profile, filteredTransactions]);
 
   // All-time spend drives the account balance in the header (independent of the view filter)
-  const totalSpent = useMemo(() => transactions.reduce((s, t) => s + (t.amount || 0), 0), [transactions]);
-  const remaining = (profile.totalBudget || 0) - totalSpent;
-
-  const pieData = (profile.categories || [])
-    .map((c) => ({ name: c.name, value: spent[c.name] || 0 }))
-    .filter((d) => d.value > 0);
-
-  const barData = (profile.categories || []).map((c) => ({
-    name: c.name.length > 10 ? c.name.slice(0, 10) + '…' : c.name,
-    Budget: c.allocated || 0,
-    Spent: spent[c.name] || 0,
-  }));
+  const { totalSpent, remaining } = useMemo(() => getBudgetSummary(profile, transactions), [profile, transactions]);
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
@@ -406,7 +404,7 @@ function ProfileCard({ profile, onEdit, onUpdateBudget }) {
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       const newRemaining = parseFloat(adjustValue) || 0;
-                      const newBudget = totalSpent + newRemaining;
+                      const newBudget = roundCurrency(totalSpent + newRemaining);
                       onUpdateBudget(profile.id, { totalBudget: newBudget });
                       setAdjusting(false);
                     } else if (e.key === 'Escape') {
@@ -415,7 +413,7 @@ function ProfileCard({ profile, onEdit, onUpdateBudget }) {
                   }}
                   onBlur={() => {
                     const newRemaining = parseFloat(adjustValue) || 0;
-                    const newBudget = totalSpent + newRemaining;
+                    const newBudget = roundCurrency(totalSpent + newRemaining);
                     onUpdateBudget(profile.id, { totalBudget: newBudget });
                     setAdjusting(false);
                   }}
@@ -659,9 +657,7 @@ function ProfileCard({ profile, onEdit, onUpdateBudget }) {
         <AddMoneyModal
           profileName={profile.name}
           onClose={() => setAddMoneyModal(false)}
-          onConfirm={(amount) => {
-            onUpdateBudget(profile.id, { totalBudget: (profile.totalBudget || 0) + amount });
-          }}
+          onConfirm={(amount) => onAddMoney(profile.id, amount)}
         />,
         document.body
       )}
@@ -672,7 +668,7 @@ function ProfileCard({ profile, onEdit, onUpdateBudget }) {
 // ─── Main Spending Money Page ───
 
 export default function SpendingMoney() {
-  const { profiles, loading, addProfile, updateProfile, removeProfile } = useBudgetProfiles();
+  const { profiles, loading, addProfile, updateProfile, removeProfile, addMoney } = useBudgetProfiles();
   usePrivacy();
   const [modalOpen, setModalOpen] = useState(false);
   const [editItem, setEditItem] = useState(null);
@@ -744,6 +740,7 @@ export default function SpendingMoney() {
                 setModalOpen(true);
               }}
               onUpdateBudget={updateProfile}
+              onAddMoney={addMoney}
             />
           ))}
         </div>

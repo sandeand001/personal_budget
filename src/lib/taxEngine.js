@@ -4,88 +4,77 @@
  * Estimates only — not tax advice.
  */
 
-/** Internal helper: calculate total annual bonus supporting multi-bonus array and legacy fields */
-function _getAnnualBonus(stream) {
-  if (!stream.bonusEnabled) return 0;
-  if (Array.isArray(stream.bonuses) && stream.bonuses.length > 0) {
-    let total = 0;
-    for (const b of stream.bonuses) {
-      const amt = parseFloat(b.amount) || 0;
-      total += amt * (Array.isArray(b.months) ? b.months.length : 0);
-    }
-    return total;
-  }
-  // Legacy single-bonus fallback
-  const bonusPerCheck = parseFloat(stream.bonusAmount) || 0;
-  return bonusPerCheck * (stream.bonusMonths?.length || 0);
-}
+import { allocateMoney, getAmountForMonth, getAnnualBonus, getPeriodsPerYear, getStreamMonthTotal, roundCurrency } from './financial.js';
 
-// ─── 2025 Federal Tax Brackets ───
+export const TAX_YEAR = 2026;
+
+// IRS Revenue Procedure 2025-32, section 4.01 (tax year 2026).
 
 const FEDERAL_BRACKETS = {
   single: [
-    { min: 0, max: 11925, rate: 0.10 },
-    { min: 11925, max: 48475, rate: 0.12 },
-    { min: 48475, max: 103350, rate: 0.22 },
-    { min: 103350, max: 197300, rate: 0.24 },
-    { min: 197300, max: 250525, rate: 0.32 },
-    { min: 250525, max: 626350, rate: 0.35 },
-    { min: 626350, max: Infinity, rate: 0.37 },
+    { min: 0, max: 12400, rate: 0.10 },
+    { min: 12400, max: 50400, rate: 0.12 },
+    { min: 50400, max: 105700, rate: 0.22 },
+    { min: 105700, max: 201775, rate: 0.24 },
+    { min: 201775, max: 256225, rate: 0.32 },
+    { min: 256225, max: 640600, rate: 0.35 },
+    { min: 640600, max: Infinity, rate: 0.37 },
   ],
   married_jointly: [
-    { min: 0, max: 23850, rate: 0.10 },
-    { min: 23850, max: 96950, rate: 0.12 },
-    { min: 96950, max: 206700, rate: 0.22 },
-    { min: 206700, max: 394600, rate: 0.24 },
-    { min: 394600, max: 501050, rate: 0.32 },
-    { min: 501050, max: 751600, rate: 0.35 },
-    { min: 751600, max: Infinity, rate: 0.37 },
+    { min: 0, max: 24800, rate: 0.10 },
+    { min: 24800, max: 100800, rate: 0.12 },
+    { min: 100800, max: 211400, rate: 0.22 },
+    { min: 211400, max: 403550, rate: 0.24 },
+    { min: 403550, max: 512450, rate: 0.32 },
+    { min: 512450, max: 768700, rate: 0.35 },
+    { min: 768700, max: Infinity, rate: 0.37 },
   ],
   married_separately: [
-    { min: 0, max: 11925, rate: 0.10 },
-    { min: 11925, max: 48475, rate: 0.12 },
-    { min: 48475, max: 103350, rate: 0.22 },
-    { min: 103350, max: 197300, rate: 0.24 },
-    { min: 197300, max: 250525, rate: 0.32 },
-    { min: 250525, max: 375800, rate: 0.35 },
-    { min: 375800, max: Infinity, rate: 0.37 },
+    { min: 0, max: 12400, rate: 0.10 },
+    { min: 12400, max: 50400, rate: 0.12 },
+    { min: 50400, max: 105700, rate: 0.22 },
+    { min: 105700, max: 201775, rate: 0.24 },
+    { min: 201775, max: 256225, rate: 0.32 },
+    { min: 256225, max: 384350, rate: 0.35 },
+    { min: 384350, max: Infinity, rate: 0.37 },
   ],
   head_of_household: [
-    { min: 0, max: 17000, rate: 0.10 },
-    { min: 17000, max: 64850, rate: 0.12 },
-    { min: 64850, max: 103350, rate: 0.22 },
-    { min: 103350, max: 197300, rate: 0.24 },
-    { min: 197300, max: 250500, rate: 0.32 },
-    { min: 250500, max: 626350, rate: 0.35 },
-    { min: 626350, max: Infinity, rate: 0.37 },
+    { min: 0, max: 17700, rate: 0.10 },
+    { min: 17700, max: 67450, rate: 0.12 },
+    { min: 67450, max: 105700, rate: 0.22 },
+    { min: 105700, max: 201750, rate: 0.24 },
+    { min: 201750, max: 256200, rate: 0.32 },
+    { min: 256200, max: 640600, rate: 0.35 },
+    { min: 640600, max: Infinity, rate: 0.37 },
   ],
 };
 
-// ─── Standard Deduction 2025 ───
+// ─── Standard Deduction 2026 ───
 
 const STANDARD_DEDUCTION = {
-  single: 15000,
-  married_jointly: 30000,
-  married_separately: 15000,
-  head_of_household: 22500,
+  single: 16100,
+  married_jointly: 32200,
+  married_separately: 16100,
+  head_of_household: 24150,
 };
 
-// ─── FICA 2025 ───
+// ─── FICA 2026 ───
 
 const SOCIAL_SECURITY_RATE = 0.062;
-const SOCIAL_SECURITY_WAGE_BASE = 176100;
+const SOCIAL_SECURITY_WAGE_BASE = 184500;
 const MEDICARE_RATE = 0.0145;
 const ADDITIONAL_MEDICARE_RATE = 0.009;
-const ADDITIONAL_MEDICARE_THRESHOLD = 200000;
-const SELF_EMPLOYMENT_TAX_RATE = 0.153;
+const ADDITIONAL_MEDICARE_THRESHOLDS = {
+  single: 200000, married_jointly: 250000, married_separately: 125000, head_of_household: 200000,
+};
 
 // ─── Child Tax Credit ───
 
-const CHILD_TAX_CREDIT_PER_CHILD = 2000;
+const CHILD_TAX_CREDIT_PER_CHILD = 2200;
 
-// ─── 401(k) Limits 2025 ───
+// ─── 401(k) Limits 2026 (under age 50) ───
 
-const MAX_401K_CONTRIBUTION = 23500;
+const MAX_401K_CONTRIBUTION = 24500;
 
 // ─── State Tax Rates (simplified — top marginal rate and effective rate approach) ───
 
@@ -170,7 +159,7 @@ export function calculateFederalTax(taxableIncome, filingStatus) {
   const brackets = FEDERAL_BRACKETS[filingStatus] || FEDERAL_BRACKETS.single;
   const deduction = STANDARD_DEDUCTION[filingStatus] || STANDARD_DEDUCTION.single;
   const adjustedIncome = Math.max(0, taxableIncome - deduction);
-  return calcBracketTax(adjustedIncome, brackets);
+  return roundCurrency(calcBracketTax(adjustedIncome, brackets));
 }
 
 export function calculateStateTax(taxableIncome, stateCode, filingStatus) {
@@ -178,41 +167,57 @@ export function calculateStateTax(taxableIncome, stateCode, filingStatus) {
   if (!state) return 0;
   const deduction = STANDARD_DEDUCTION[filingStatus] || STANDARD_DEDUCTION.single;
   const adjustedIncome = Math.max(0, taxableIncome - deduction);
-  return adjustedIncome * state.rate;
+  return roundCurrency(adjustedIncome * state.rate);
 }
 
-export function calculateFICA(grossIncome, isW2) {
+export function calculateFICA(grossIncome, isW2, filingStatus = 'single', w2Income = 0) {
+  grossIncome = Math.max(0, grossIncome);
+  const threshold = ADDITIONAL_MEDICARE_THRESHOLDS[filingStatus] || ADDITIONAL_MEDICARE_THRESHOLDS.single;
   if (isW2) {
-    const ss = Math.min(grossIncome, SOCIAL_SECURITY_WAGE_BASE) * SOCIAL_SECURITY_RATE;
+    const ss = roundCurrency(Math.min(grossIncome, SOCIAL_SECURITY_WAGE_BASE) * SOCIAL_SECURITY_RATE);
     let medicare = grossIncome * MEDICARE_RATE;
-    if (grossIncome > ADDITIONAL_MEDICARE_THRESHOLD) {
-      medicare += (grossIncome - ADDITIONAL_MEDICARE_THRESHOLD) * ADDITIONAL_MEDICARE_RATE;
+    if (grossIncome > threshold) {
+      medicare += (grossIncome - threshold) * ADDITIONAL_MEDICARE_RATE;
     }
-    return { socialSecurity: ss, medicare, total: ss + medicare };
+    medicare = roundCurrency(medicare);
+    return { socialSecurity: ss, medicare, total: roundCurrency(ss + medicare) };
   } else {
-    // Self-employed: full 15.3% on 92.35% of net earnings
     const selfEmploymentIncome = grossIncome * 0.9235;
-    const ss = Math.min(selfEmploymentIncome, SOCIAL_SECURITY_WAGE_BASE) * (SOCIAL_SECURITY_RATE * 2);
-    const medicare = selfEmploymentIncome * (MEDICARE_RATE * 2);
-    const total = ss + medicare;
-    // Deductible half for income tax purposes
-    return { socialSecurity: ss, medicare, total, deductibleHalf: total / 2 };
+    if (selfEmploymentIncome < 400) return { socialSecurity: 0, medicare: 0, total: 0, deductibleHalf: 0 };
+    const ss = roundCurrency(Math.min(selfEmploymentIncome, Math.max(0, SOCIAL_SECURITY_WAGE_BASE - w2Income)) * SOCIAL_SECURITY_RATE * 2);
+    const basicMedicare = roundCurrency(selfEmploymentIncome * MEDICARE_RATE * 2);
+    const additionalMedicare = roundCurrency((
+      Math.max(0, w2Income + selfEmploymentIncome - threshold) - Math.max(0, w2Income - threshold)
+    ) * ADDITIONAL_MEDICARE_RATE);
+    const medicare = roundCurrency(basicMedicare + additionalMedicare);
+    return {
+      socialSecurity: ss, medicare, total: roundCurrency(ss + medicare),
+      deductibleHalf: roundCurrency((ss + basicMedicare) / 2),
+    };
   }
 }
 
 export function calculate401k(grossW2Income, traditionalPct, rothPct) {
   const totalPct = (traditionalPct || 0) + (rothPct || 0);
-  const totalContribution = Math.min(grossW2Income * (totalPct / 100), MAX_401K_CONTRIBUTION);
+  const totalContribution = roundCurrency(Math.min(grossW2Income * (totalPct / 100), MAX_401K_CONTRIBUTION, grossW2Income));
   const traditionalContribution = totalPct > 0
-    ? totalContribution * ((traditionalPct || 0) / totalPct)
+    ? roundCurrency(totalContribution * ((traditionalPct || 0) / totalPct))
     : 0;
-  const rothContribution = totalContribution - traditionalContribution;
+  const rothContribution = roundCurrency(totalContribution - traditionalContribution);
   return { traditional: traditionalContribution, roth: rothContribution, total: totalContribution };
 }
 
-export function calculateChildTaxCredit(dependents, federalTax) {
-  const credit = (dependents || 0) * CHILD_TAX_CREDIT_PER_CHILD;
-  return Math.min(credit, federalTax);
+export function calculateChildTaxCredit(dependents, federalTax, adjustedIncome = 0, filingStatus = 'single') {
+  const threshold = filingStatus === 'married_jointly' ? 400000 : 200000;
+  const phaseout = Math.ceil(Math.max(0, adjustedIncome - threshold) / 1000) * 50;
+  const credit = Math.max(0, (dependents || 0) * CHILD_TAX_CREDIT_PER_CHILD - phaseout);
+  return Math.min(credit, Math.max(0, federalTax));
+}
+
+function streamPeriods(stream) {
+  return stream.frequency
+    ? getPeriodsPerYear(stream.frequency, stream.applicableMonths)
+    : (stream.periodsPerYear || 12);
 }
 
 /**
@@ -224,7 +229,7 @@ export function calculateAllDeductions({
   retirement = {},
 }) {
   const { filingStatus = 'single', state = 'TX', dependents = 0, extraWithholding = 0 } = taxProfile;
-  const { traditionalPct = 0, rothPct = 0, employerMatchPct = 0 } = retirement;
+  const { traditionalPct = 0, rothPct = 0 } = retirement;
 
   // Separate W-2 and 1099 income (taxable only)
   let w2TaxableAnnual = 0;
@@ -234,8 +239,8 @@ export function calculateAllDeductions({
 
   for (const s of incomeStreams) {
     const baseAmount = s.grossAmount ?? s.amount ?? 0;
-    const annual = baseAmount * (s.periodsPerYear || 12);
-    const bonusAnnual = _getAnnualBonus(s);
+    const annual = roundCurrency(baseAmount * streamPeriods(s));
+    const bonusAnnual = getAnnualBonus(s, TAX_YEAR);
     totalGrossAnnual += annual + bonusAnnual;
     if (s.isTaxable) {
       totalTaxableAnnual += annual + bonusAnnual;
@@ -251,9 +256,9 @@ export function calculateAllDeductions({
   const k401 = calculate401k(w2TaxableAnnual, traditionalPct, rothPct);
 
   // FICA
-  const ficaW2 = calculateFICA(w2TaxableAnnual, true);
-  const fica1099 = calculateFICA(selfEmployTaxableAnnual, false);
-  const totalFICA = ficaW2.total + fica1099.total;
+  const ficaW2 = calculateFICA(w2TaxableAnnual, true, filingStatus);
+  const fica1099 = calculateFICA(selfEmployTaxableAnnual, false, filingStatus, w2TaxableAnnual);
+  const totalFICA = roundCurrency(ficaW2.total + fica1099.total);
 
   // Adjusted taxable income for federal tax
   // Traditional 401k is pre-tax, so subtract from taxable income
@@ -264,21 +269,20 @@ export function calculateAllDeductions({
   const federalTax = calculateFederalTax(adjustedTaxableIncome, filingStatus);
 
   // Child Tax Credit
-  const childCredit = calculateChildTaxCredit(dependents, federalTax);
+  const childCredit = calculateChildTaxCredit(dependents, federalTax, adjustedTaxableIncome, filingStatus);
   const federalTaxAfterCredits = federalTax - childCredit;
 
   // State tax
   const stateTax = calculateStateTax(adjustedTaxableIncome, state, filingStatus);
 
   // Extra withholding (annual)
-  const extraWithholdingAnnual = (extraWithholding || 0) * 12;
+  const extraWithholdingAnnual = roundCurrency((extraWithholding || 0) * 12);
 
   // Estimated total tax withheld (federal + state + FICA + extra)
-  const totalWithheld = federalTaxAfterCredits + stateTax + totalFICA + extraWithholdingAnnual;
+  const totalWithheld = roundCurrency(federalTaxAfterCredits + stateTax + totalFICA + extraWithholdingAnnual);
 
   // Projected refund/owed
   const totalLiability = federalTaxAfterCredits + stateTax + totalFICA;
-  const refundOrOwed = totalWithheld - totalLiability; // positive = refund with extra withholding
 
   return {
     totalGrossAnnual,
@@ -298,9 +302,8 @@ export function calculateAllDeductions({
     extraWithholdingAnnual,
     totalWithheld,
     totalLiability,
-    refundOrOwed: extraWithholdingAnnual, // extra withholding = potential refund
-    totalDeductions: federalTaxAfterCredits + stateTax + totalFICA + k401.total,
-    netAnnual: totalGrossAnnual - (federalTaxAfterCredits + stateTax + totalFICA + k401.total),
+    totalDeductions: roundCurrency(totalWithheld + k401.total),
+    netAnnual: roundCurrency(totalGrossAnnual - totalWithheld - k401.total),
   };
 }
 
@@ -310,19 +313,18 @@ export function calculateAllDeductions({
  */
 export function calculateStreamDeductions(stream, retirement = {}, householdTaxProfile = {}) {
   // Use household-level tax profile as the source (per-stream taxProfile is legacy fallback)
-  const tp = stream.taxProfile || householdTaxProfile || {};
-  const { filingStatus = 'single', state = 'TX', dependents = 0, extraWithholding = 0, w4Allowances = 0 } = { ...householdTaxProfile, ...tp };
+  const { filingStatus = 'single', state = 'TX', dependents = 0, extraWithholding = 0, w4Allowances = 0 } = { ...stream.taxProfile, ...householdTaxProfile };
   const { traditionalPct = 0, rothPct = 0 } = retirement;
 
   // Check stream-level manual deductions first, then household fallback
   const manualDeductions = (stream.manualDeductions?.enabled ? stream.manualDeductions : null)
     || (householdTaxProfile.manualDeductions?.enabled ? householdTaxProfile.manualDeductions : null);
 
-  const periodsPerYear = stream.periodsPerYear || 12;
+  const periodsPerYear = streamPeriods(stream);
   const baseAmount = stream.grossAmount ?? stream.amount ?? 0;
-  const baseAnnual = baseAmount * periodsPerYear;
-  const bonusAnnual = _getAnnualBonus(stream);
-  const grossAnnual = baseAnnual + bonusAnnual;
+  const baseAnnual = roundCurrency(baseAmount * periodsPerYear);
+  const bonusAnnual = getAnnualBonus(stream, TAX_YEAR);
+  const grossAnnual = roundCurrency(baseAnnual + bonusAnnual);
 
   if (!stream.isTaxable) {
     return {
@@ -361,9 +363,10 @@ export function calculateStreamDeductions(stream, retirement = {}, householdTaxP
       ? md.otherDeductions.reduce((sum, d) => sum + (parseFloat(d.amount) || 0), 0)
       : (parseFloat(md.other) || 0);
     const otherAnnual = otherPerCheck * periodsPerYear;
-    const totalDeductions = fedTaxAnnual + stateTaxAnnual + ficaAnnual + k401Annual + otherAnnual;
-    const netAnnual = grossAnnual - totalDeductions;
-    const extraWithholdingAnnual = (extraWithholding || 0) * 12;
+    const totalDeductions = roundCurrency(fedTaxAnnual + stateTaxAnnual + ficaAnnual + k401Annual + otherAnnual);
+    const netAnnual = roundCurrency(grossAnnual - totalDeductions);
+    // Paystub federal withholding already includes any extra withheld.
+    const extraWithholdingAnnual = 0;
 
     return {
       streamId: stream.id,
@@ -400,22 +403,22 @@ export function calculateStreamDeductions(stream, retirement = {}, householdTaxP
   const k401 = isW2 ? calculate401k(grossAnnual, traditionalPct, rothPct) : { traditional: 0, roth: 0, total: 0 };
 
   // FICA
-  const fica = calculateFICA(grossAnnual, isW2);
+  const fica = calculateFICA(grossAnnual, isW2, filingStatus);
 
   // Adjusted taxable income
   const adjustedTaxable = grossAnnual - k401.traditional - (fica.deductibleHalf || 0);
 
   // Federal tax
   const federalTax = calculateFederalTax(adjustedTaxable, filingStatus);
-  const childCredit = calculateChildTaxCredit(dependents, federalTax);
+  const childCredit = calculateChildTaxCredit(dependents, federalTax, adjustedTaxable, filingStatus);
   const federalTaxAfterCredits = federalTax - childCredit;
 
   // State tax
   const stateTax = calculateStateTax(adjustedTaxable, state, filingStatus);
 
-  const extraWithholdingAnnual = (extraWithholding || 0) * 12;
-  const totalDeductions = federalTaxAfterCredits + stateTax + fica.total + k401.total;
-  const netAnnual = grossAnnual - totalDeductions;
+  const extraWithholdingAnnual = roundCurrency((extraWithholding || 0) * 12);
+  const totalDeductions = roundCurrency(federalTaxAfterCredits + stateTax + fica.total + k401.total + extraWithholdingAnnual);
+  const netAnnual = roundCurrency(grossAnnual - totalDeductions);
 
   return {
     streamId: stream.id,
@@ -449,7 +452,17 @@ export function calculateStreamDeductions(stream, retirement = {}, householdTaxP
  * Calculate deductions for all streams individually, then aggregate.
  */
 export function calculateAllStreamDeductions(incomeStreams = [], retirement = {}, householdTaxProfile = {}) {
-  const streamResults = incomeStreams.map((s) => calculateStreamDeductions(s, retirement, householdTaxProfile));
+  const hasHouseholdExtra = householdTaxProfile.extraWithholding != null;
+  const streamResults = incomeStreams.map((s) => calculateStreamDeductions(s, retirement,
+    hasHouseholdExtra ? { ...householdTaxProfile, extraWithholding: 0 } : householdTaxProfile));
+  const eligible = streamResults.filter((r) => r.isTaxable && !r.isManual && r.grossAnnual > 0);
+  const extras = allocateMoney((householdTaxProfile.extraWithholding || 0) * 12, eligible.map((r) => r.grossAnnual));
+  eligible.forEach((result, i) => {
+    result.extraWithholdingAnnual = roundCurrency(result.extraWithholdingAnnual + extras[i]);
+    result.totalDeductions = roundCurrency(result.totalDeductions + extras[i]);
+    result.netAnnual = roundCurrency(result.netAnnual - extras[i]);
+    result.perPaycheck = result.netAnnual / result.periodsPerYear;
+  });
 
   const totals = streamResults.reduce((acc, r) => ({
     totalGrossAnnual: acc.totalGrossAnnual + r.grossAnnual,
@@ -475,5 +488,26 @@ export function calculateAllStreamDeductions(incomeStreams = [], retirement = {}
     totalExtraWithholding: 0,
   });
 
-  return { streams: streamResults, totals };
+  return { streams: streamResults, totals: Object.fromEntries(Object.entries(totals).map(([key, value]) => [key, roundCurrency(value)])) };
+}
+
+/** Cash-flow estimate, not a payroll withholding or tax-return calculation. */
+export function calculateMonthlyTakeHome({ incomeStreams, streamResults, isSimpleMode, month, year, incomeLog }) {
+  if (incomeLog?.netTotal != null) return roundCurrency(incomeLog.netTotal);
+  const basis = incomeLog?.incomeBasis ?? (isSimpleMode ? 'take_home' : 'gross');
+  if (incomeLog && basis === 'take_home') return roundCurrency(incomeLog.total);
+  if (!incomeLog && isSimpleMode) {
+    return roundCurrency(incomeStreams.reduce((sum, stream) => sum + getStreamMonthTotal(stream, true, month, year), 0));
+  }
+  const monthlyNet = incomeStreams.reduce((sum, stream) => {
+    const result = streamResults.find((item) => item.streamId === stream.id);
+    if (!result) throw new Error(`Missing deduction estimate for ${stream.name}.`);
+    const gross = incomeLog?.entries?.find((entry) => entry.id === stream.id)?.actual
+      ?? getStreamMonthTotal(stream, false, month, year);
+    const deductions = gross <= 0 ? 0 : result.isManual
+      ? getAmountForMonth(result.totalDeductions / result.periodsPerYear, stream.frequency, stream.applicableMonths, month, year)
+      : (result.grossAnnual > 0 ? gross * result.totalDeductions / result.grossAnnual : 0);
+    return sum + gross - deductions;
+  }, 0);
+  return roundCurrency(monthlyNet);
 }

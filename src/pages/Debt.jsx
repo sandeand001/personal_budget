@@ -1,9 +1,10 @@
 import { useState, useMemo } from 'react';
 import { Landmark, Plus, Trash2, Pencil, X, TrendingDown, ChevronDown, ChevronRight, GraduationCap, Info, ToggleLeft, ToggleRight } from 'lucide-react';
 import { useDebts, useLoanGroups, useFixedExpenses, useExpenses } from '../hooks/useFirestore';
-import { formatCurrency, formatCurrencyShort, FREQUENCIES, toMonthly, toAnnual } from '../lib/financial';
+import { allocateMoney, formatCurrency, formatCurrencyShort, FREQUENCIES, toMonthly } from '../lib/financial';
 import { usePrivacy } from '../contexts/PrivacyContext';
 import { useAppMode } from '../contexts/AppModeContext';
+import { calcLoanGroupPayoff, calcPayoff } from '../lib/debt';
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -76,7 +77,7 @@ function DebtModal({ onClose, onSave, initial }) {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Balance ($)</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Principal Balance ($)</label>
               <input
                 type="number" required min="0" step="0.01" value={form.balance}
                 onChange={(e) => setForm({ ...form, balance: e.target.value })}
@@ -96,13 +97,14 @@ function DebtModal({ onClose, onSave, initial }) {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Min. Payment ($)</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Principal + Interest Payment ($)</label>
               <input
                 type="number" required min="0" step="0.01" value={form.minimumPayment}
                 onChange={(e) => setForm({ ...form, minimumPayment: e.target.value })}
                 placeholder="0.00"
                 className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
               />
+              <p className="text-xs text-gray-400 mt-1">Exclude escrow, insurance, and fees from payoff estimates.</p>
             </div>
           </div>
           <div>
@@ -335,12 +337,13 @@ function LoanGroupCard({ group, onEdit, onDelete, linkedCount = 0 }) {
   const monthlyPmt = toMonthly(group.minimumPayment || 0, group.paymentFrequency || 'monthly');
 
   // Distribute payment proportionally by balance
-  const distributions = subLoans.map((sl) => {
+  const paymentAmounts = allocateMoney(totalBalance > 0 ? monthlyPmt : 0, subLoans.map((loan) => loan.balance || 0));
+  const distributions = subLoans.map((sl, i) => {
     const share = totalBalance > 0 ? (sl.balance || 0) / totalBalance : 0;
-    return { ...sl, share, payment: monthlyPmt * share };
+    return { ...sl, share, payment: paymentAmounts[i] };
   });
 
-  const payoff = calcPayoff(totalBalance, weightedRate, monthlyPmt);
+  const payoff = calcLoanGroupPayoff(subLoans, monthlyPmt);
   const payoffText = isFinite(payoff.months)
     ? payoff.months < 12 ? `${payoff.months} mo` : `${Math.round(payoff.months / 12 * 10) / 10} yr`
     : '∞';
@@ -447,24 +450,6 @@ function LoanGroupCard({ group, onEdit, onDelete, linkedCount = 0 }) {
   );
 }
 
-/** Calculate months to payoff and total interest for a debt */
-function calcPayoff(balance, annualRate, monthlyPayment) {
-  if (monthlyPayment <= 0 || balance <= 0) return { months: Infinity, totalInterest: 0 };
-  const monthlyRate = annualRate / 100 / 12;
-  if (monthlyRate === 0) {
-    return { months: Math.ceil(balance / monthlyPayment), totalInterest: 0 };
-  }
-  // Minimum payment must cover interest
-  const monthlyInterest = balance * monthlyRate;
-  if (monthlyPayment <= monthlyInterest) return { months: Infinity, totalInterest: Infinity };
-
-  const months = Math.ceil(
-    -Math.log(1 - (balance * monthlyRate) / monthlyPayment) / Math.log(1 + monthlyRate)
-  );
-  const totalPaid = monthlyPayment * months;
-  return { months, totalInterest: totalPaid - balance };
-}
-
 export default function Debt() {
   const { debts, loading, addDebt, updateDebt, removeDebt } = useDebts();
   const { loanGroups, loading: groupsLoading, addLoanGroup, updateLoanGroup, removeLoanGroup } = useLoanGroups();
@@ -503,8 +488,8 @@ export default function Debt() {
       totalBalance += d.balance || 0;
       const monthlyPmt = toMonthly(d.minimumPayment || 0, d.paymentFrequency || 'monthly');
       totalMonthlyPayment += monthlyPmt;
-      const payoff = calcPayoff(d.balance, d.interestRate, monthlyPmt);
-      if (isFinite(payoff.totalInterest)) totalInterest += payoff.totalInterest;
+      const payoff = calcPayoff(d.balance || 0, d.interestRate || 0, monthlyPmt);
+      totalInterest += payoff.totalInterest;
     });
 
     // Include loan groups
@@ -514,11 +499,8 @@ export default function Debt() {
       totalBalance += groupBalance;
       const monthlyPmt = toMonthly(g.minimumPayment || 0, g.paymentFrequency || 'monthly');
       totalMonthlyPayment += monthlyPmt;
-      const weightedRate = groupBalance > 0
-        ? subLoans.reduce((s, sl) => s + (sl.balance || 0) * (sl.interestRate || 0), 0) / groupBalance
-        : 0;
-      const payoff = calcPayoff(groupBalance, weightedRate, monthlyPmt);
-      if (isFinite(payoff.totalInterest)) totalInterest += payoff.totalInterest;
+      const payoff = calcLoanGroupPayoff(subLoans, monthlyPmt);
+      totalInterest += payoff.totalInterest;
     });
 
     return { totalBalance, totalMonthlyPayment, totalInterest };
@@ -543,25 +525,22 @@ export default function Debt() {
   const barData = useMemo(() => {
     const rows = debts.map((d) => {
       const monthlyPmt = toMonthly(d.minimumPayment || 0, d.paymentFrequency || 'monthly');
-      const payoff = calcPayoff(d.balance, d.interestRate, monthlyPmt);
+      const payoff = calcPayoff(d.balance || 0, d.interestRate || 0, monthlyPmt);
       return {
         name: d.name.length > 12 ? d.name.slice(0, 12) + '…' : d.name,
         Balance: d.balance,
-        Interest: isFinite(payoff.totalInterest) ? Math.round(payoff.totalInterest) : 0,
+        Interest: isFinite(payoff.totalInterest) ? payoff.totalInterest : null,
       };
     });
     loanGroups.forEach((g) => {
       const subLoans = g.subLoans || [];
       const groupBalance = subLoans.reduce((s, sl) => s + (sl.balance || 0), 0);
-      const weightedRate = groupBalance > 0
-        ? subLoans.reduce((s, sl) => s + (sl.balance || 0) * (sl.interestRate || 0), 0) / groupBalance
-        : 0;
       const monthlyPmt = toMonthly(g.minimumPayment || 0, g.paymentFrequency || 'monthly');
-      const payoff = calcPayoff(groupBalance, weightedRate, monthlyPmt);
+      const payoff = calcLoanGroupPayoff(subLoans, monthlyPmt);
       rows.push({
         name: g.name.length > 12 ? g.name.slice(0, 12) + '…' : g.name,
         Balance: groupBalance,
-        Interest: isFinite(payoff.totalInterest) ? Math.round(payoff.totalInterest) : 0,
+        Interest: isFinite(payoff.totalInterest) ? payoff.totalInterest : null,
       });
     });
     return rows;
@@ -615,12 +594,16 @@ export default function Debt() {
               <Info className="w-4 h-4 inline" />
             </summary>
             <div className="absolute mt-2 z-20 w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 shadow-lg text-sm text-gray-600 dark:text-gray-400 space-y-2">
-              <p><strong>Detailed Mode</strong> (default) gives you the full picture: gross income, tax profile with W-4 settings, auto-calculated or manual paystub deductions, FICA, 401(k), and a projected tax refund/owed estimate.</p>
+              <p><strong>Detailed Mode</strong> (default) shows gross income, per-stream tax estimates or manual paystub deductions, FICA, 401(k), and extra withholding. These estimates are not a household tax return or refund prediction.</p>
               <p><strong>Simple Mode</strong> is for people who just want to enter the take-home pay they actually receive (net income). Tax calculations, 401(k), and paycheck deductions are all skipped. The Expenses page only shows bills you pay yourself — no tax or retirement sections.</p>
               <p className="italic text-xs">Tip: You can switch between modes at any time. Your data is preserved — switching modes only changes what the app shows you.</p>
             </div>
           </details>
         </div>
+      </div>
+
+      <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4 text-sm text-amber-800 dark:text-amber-300">
+        Balances and payoff dates are estimates, not lender statements. Earlier versions subtracted entire payments without interest; edit any affected balance to match the lender after all posted payments. Do not replay old payments after reconciling. Mark extra linked expenses as principal-only, exclude escrow/fees, and review interest during expense lock-in.
       </div>
 
       {/* Summary Cards */}
@@ -636,7 +619,7 @@ export default function Debt() {
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
             <p className="text-sm text-gray-500 dark:text-gray-400">Est. Total Interest</p>
-            <p className="text-2xl font-bold text-gray-700 dark:text-gray-300">{formatCurrency(summary.totalInterest)}</p>
+            <p className="text-2xl font-bold text-gray-700 dark:text-gray-300">{isFinite(summary.totalInterest) ? formatCurrency(summary.totalInterest) : 'Not amortizing'}</p>
           </div>
         </div>
       )}
@@ -684,7 +667,7 @@ export default function Debt() {
                 <tbody>
                   {debts.map((d) => {
                     const monthlyPmt = toMonthly(d.minimumPayment || 0, d.paymentFrequency || 'monthly');
-                    const payoff = calcPayoff(d.balance, d.interestRate, monthlyPmt);
+                    const payoff = calcPayoff(d.balance || 0, d.interestRate || 0, monthlyPmt);
                     const typeLabel = DEBT_TYPES.find((t) => t.value === d.type)?.label || d.type;
                     const payoffText = isFinite(payoff.months)
                       ? payoff.months < 12
@@ -748,6 +731,7 @@ export default function Debt() {
                 <Tooltip formatter={(v) => formatCurrency(v)} />
               </PieChart>
             </ResponsiveContainer>
+            <p className="text-xs text-gray-400 mt-2">Interest is not plotted for loans whose payments do not cover interest. Payoff estimates use fixed monthly-equivalent payments and APR / 12; grouped loans retain their individual rates and estimated proportional allocation.</p>
           </div>
 
           {/* Balance + Interest Bar */}

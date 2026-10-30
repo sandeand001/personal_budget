@@ -1,8 +1,9 @@
 ﻿import { useState, useMemo } from 'react';
 import { DollarSign, Plus, Trash2, Pencil, Info, X, Lock, Unlock, Check, ToggleLeft, ToggleRight, ChevronLeft, ChevronRight } from 'lucide-react';
-import { useIncomeStreams, useMonthlyIncomeLog } from '../hooks/useFirestore';
+import { useIncomeStreams, useMonthlyIncomeLog, useRetirement, useTaxProfile } from '../hooks/useFirestore';
 import { useAppMode } from '../contexts/AppModeContext';
-import { FREQUENCIES, NEEDS_MONTH_PICKER, MONTH_NAMES, MONTH_NAMES_FULL, defaultMonthsForFrequency, getAmountForMonth, toAnnual, formatCurrency, formatCurrencyShort, getStreamAmount, getStreamMonthTotal, getBonusForMonth } from '../lib/financial';
+import { FREQUENCIES, NEEDS_MONTH_PICKER, MONTH_NAMES, MONTH_NAMES_FULL, defaultMonthsForFrequency, formatCurrency, formatCurrencyShort, getStreamAmount, getStreamMonthTotal, getStreamAnnualTotal, roundCurrency } from '../lib/financial';
+import { calculateAllStreamDeductions, calculateMonthlyTakeHome } from '../lib/taxEngine';
 import { usePrivacy } from '../contexts/PrivacyContext';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 
@@ -321,7 +322,7 @@ function ConfirmDelete({ name, onClose, onConfirm }) {
 
 // ─── Lock-In Modal ───
 
-function LockInModal({ streams, currentMonth, lockedData, onClose, onLock, isSimpleMode, actualAmounts }) {
+function LockInModal({ streams, currentMonth, currentYear, lockedData, onClose, onLock, isSimpleMode, actualAmounts, saving, lockError }) {
   const [entries, setEntries] = useState(() => {
     if (lockedData?.entries) {
       return lockedData.entries;
@@ -329,8 +330,8 @@ function LockInModal({ streams, currentMonth, lockedData, onClose, onLock, isSim
     return streams.map((s) => ({
       id: s.id,
       name: s.name,
-      estimated: getStreamMonthTotal(s, isSimpleMode, currentMonth),
-      actual: actualAmounts[s.id] ?? getStreamMonthTotal(s, isSimpleMode, currentMonth),
+      estimated: getStreamMonthTotal(s, isSimpleMode, currentMonth, currentYear),
+      actual: actualAmounts[s.id] ?? getStreamMonthTotal(s, isSimpleMode, currentMonth, currentYear),
     }));
   });
 
@@ -381,14 +382,15 @@ function LockInModal({ streams, currentMonth, lockedData, onClose, onLock, isSim
             <span className="text-sm font-semibold text-gray-900 dark:text-white">Total</span>
             <span className="text-lg font-bold text-emerald-600">{formatCurrency(total)}</span>
           </div>
+          {lockError && <p role="alert" className="text-sm text-red-600 mb-3">{lockError}</p>}
           <div className="flex gap-3">
             <button onClick={onClose}
               className="flex-1 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition">
               Cancel
             </button>
-            <button onClick={() => onLock(entries, total)}
-              className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition flex items-center justify-center gap-2">
-              <Lock className="w-4 h-4" /> Lock In
+            <button onClick={() => onLock(entries, total)} disabled={saving}
+              className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition flex items-center justify-center gap-2">
+              <Lock className="w-4 h-4" /> {saving ? 'Saving...' : 'Lock In'}
             </button>
           </div>
         </div>
@@ -400,13 +402,17 @@ function LockInModal({ streams, currentMonth, lockedData, onClose, onLock, isSim
 export default function Income() {
   const { streams, loading, addStream, updateStream, removeStream } = useIncomeStreams();
   const { logs, lockMonth, unlockMonth } = useMonthlyIncomeLog();
+  const { retirement } = useRetirement();
+  const { profile: taxProfile } = useTaxProfile();
   const { isSimpleMode, toggleMode } = useAppMode();
   usePrivacy();
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [showLockModal, setShowLockModal] = useState(false);
-  const [actualAmounts, setActualAmounts] = useState({});
+  const [actualAmountsByMonth, setActualAmountsByMonth] = useState({});
+  const [incomeLockError, setIncomeLockError] = useState('');
+  const [savingIncome, setSavingIncome] = useState(false);
 
   const now = new Date();
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
@@ -414,8 +420,11 @@ export default function Income() {
   const currentMonth = selectedMonth;
   const currentYear = selectedYear;
   const yearMonth = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
+  const actualsKey = `${yearMonth}:${isSimpleMode ? 'net' : 'gross'}`;
+  const actualAmounts = useMemo(() => actualAmountsByMonth[actualsKey] || {}, [actualAmountsByMonth, actualsKey]);
   const lockedData = logs[yearMonth];
   const isLocked = !!lockedData;
+  const lockedTotal = isSimpleMode ? (lockedData?.netTotal ?? lockedData?.total) : lockedData?.total;
 
   // This Month calculation — uses mode-aware getStreamMonthTotal
   const thisMonthEstimated = useMemo(() =>
@@ -424,17 +433,17 @@ export default function Income() {
   );
 
   const thisMonthActualTotal = useMemo(() => {
-    if (isLocked) return lockedData.total;
+    if (isLocked) return lockedTotal;
     const hasActuals = Object.keys(actualAmounts).length > 0;
     if (!hasActuals) return null;
     return streams.reduce((sum, s) => {
       const actual = actualAmounts[s.id];
       return sum + (actual !== undefined ? actual : getStreamMonthTotal(s, isSimpleMode, currentMonth, currentYear));
     }, 0);
-  }, [streams, currentMonth, currentYear, isSimpleMode, isLocked, lockedData, actualAmounts]);
+  }, [streams, currentMonth, currentYear, isSimpleMode, isLocked, lockedTotal, actualAmounts]);
 
-  const totalAnnual = streams.reduce((sum, s) => sum + toAnnual(getStreamAmount(s, isSimpleMode), s.frequency), 0);
-  const taxableAnnual = streams.filter((s) => s.isTaxable).reduce((sum, s) => sum + toAnnual(getStreamAmount(s, isSimpleMode), s.frequency), 0);
+  const totalAnnual = streams.reduce((sum, s) => sum + getStreamAnnualTotal(s, isSimpleMode, currentYear), 0);
+  const taxableAnnual = streams.filter((s) => s.isTaxable).reduce((sum, s) => sum + getStreamAnnualTotal(s, isSimpleMode, currentYear), 0);
   const nonTaxableAnnual = totalAnnual - taxableAnnual;
 
   const taxableThisMonth = streams.filter((s) => s.isTaxable).reduce((sum, s) => sum + getStreamMonthTotal(s, isSimpleMode, currentMonth, currentYear), 0);
@@ -457,6 +466,36 @@ export default function Income() {
       addStream(data);
     }
     setEditing(null);
+  }
+
+  async function handleLockIncome(entries, total) {
+    if (savingIncome) return;
+    setSavingIncome(true);
+    setIncomeLockError('');
+    try {
+      const incomeBasis = isSimpleMode ? 'take_home' : 'gross';
+      const deductions = calculateAllStreamDeductions(streams, retirement || {}, taxProfile || {});
+      const recordedEntries = entries.map((entry) => {
+        const stream = streams.find((item) => item.id === entry.id);
+        if (!stream) throw new Error('An income stream changed. Reopen the lock-in preview.');
+        return {
+          ...entry,
+          netActual: calculateMonthlyTakeHome({
+            incomeStreams: [stream], streamResults: deductions.streams, isSimpleMode,
+            month: currentMonth, year: currentYear,
+            incomeLog: { entries: [entry], total: entry.actual, incomeBasis },
+          }),
+        };
+      });
+      const netTotal = roundCurrency(recordedEntries.reduce((sum, entry) => sum + entry.netActual, 0));
+      await lockMonth(yearMonth, recordedEntries, total, incomeBasis, netTotal);
+      setShowLockModal(false);
+    } catch (error) {
+      console.error('Failed to lock income', error);
+      setIncomeLockError(error instanceof Error ? error.message : 'Unable to lock income. Please try again.');
+    } finally {
+      setSavingIncome(false);
+    }
   }
 
   function handleDelete() {
@@ -506,7 +545,7 @@ export default function Income() {
               <Info className="w-4 h-4 inline" />
             </summary>
             <div className="absolute mt-2 z-20 w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 shadow-lg text-sm text-gray-600 dark:text-gray-400 space-y-2">
-              <p><strong>Detailed Mode</strong> (default) gives you the full picture: gross income, tax profile with W-4 settings, auto-calculated or manual paystub deductions, FICA, 401(k), and a projected tax refund/owed estimate.</p>
+              <p><strong>Detailed Mode</strong> (default) shows gross income, per-stream tax estimates or manual paystub deductions, FICA, 401(k), and extra withholding. These estimates are not a household tax return or refund prediction.</p>
               <p><strong>Simple Mode</strong> is for people who just want to enter the take-home pay they actually receive (net income). Tax calculations, 401(k), and paycheck deductions are all skipped. The Expenses page only shows bills you pay yourself — no tax or retirement sections.</p>
               <p className="italic text-xs">Tip: You can switch between modes at any time. Your data is preserved — switching modes only changes what the app shows you.</p>
             </div>
@@ -536,7 +575,7 @@ export default function Income() {
                 </button>
               </div>
             </div>
-            <p className="text-3xl font-bold">{formatCurrency(isLocked ? lockedData.total : thisMonthEstimated)}</p>
+            <p className="text-3xl font-bold">{formatCurrency(isLocked ? lockedTotal : thisMonthEstimated)}</p>
             <p className="text-sm text-white/70 mt-1">
               {isLocked ? 'Locked in — actual amounts recorded' : 'Projected from your income streams'}
             </p>
@@ -629,7 +668,7 @@ export default function Income() {
                     <th className="text-right px-4 py-3 font-medium text-gray-500 dark:text-gray-400">{isSimpleMode ? 'Take-Home' : 'Gross'}</th>
                     <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Frequency</th>
                     <th className="text-right px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Projected This Mo</th>
-                    <th className="text-right px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Actual This Mo</th>
+                    <th className="text-right px-4 py-3 font-medium text-gray-500 dark:text-gray-400">{isLocked && !isSimpleMode && lockedData.incomeBasis === 'take_home' ? 'Locked Take-Home' : 'Actual This Mo'}</th>
                     {!isSimpleMode && <th className="text-center px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Taxable</th>}
                     <th className="text-right px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Actions</th>
                   </tr>
@@ -661,20 +700,24 @@ export default function Income() {
                       <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-white">{formatCurrency(projected)}</td>
                       <td className="px-4 py-3 text-right">
                         {isLocked ? (
-                          <span className="font-medium text-blue-600">{formatCurrency(lockedData.entries?.find(e => e.id === s.id)?.actual ?? projected)}</span>
+                          <span className="font-medium text-blue-600">{formatCurrency(
+                            (isSimpleMode ? lockedData.entries?.find(e => e.id === s.id)?.netActual : undefined)
+                            ?? lockedData.entries?.find(e => e.id === s.id)?.actual ?? projected
+                          )}</span>
                         ) : (
                           <input
                             type="number" min="0" step="0.01"
                             value={actualAmounts[s.id] ?? ''}
                             onChange={(e) => {
                               const val = e.target.value;
-                              setActualAmounts(prev => {
+                              setActualAmountsByMonth(prev => {
+                                const next = { ...(prev[actualsKey] || {}) };
                                 if (val === '') {
-                                  const next = { ...prev };
                                   delete next[s.id];
-                                  return next;
+                                } else {
+                                  next[s.id] = parseFloat(val) || 0;
                                 }
-                                return { ...prev, [s.id]: parseFloat(val) || 0 };
+                                return { ...prev, [actualsKey]: next };
                               });
                             }}
                             placeholder={formatCurrency(projected).replace('$', '')}
@@ -770,11 +813,14 @@ export default function Income() {
         <LockInModal
           streams={streams}
           currentMonth={currentMonth}
+          currentYear={currentYear}
           lockedData={lockedData}
           isSimpleMode={isSimpleMode}
           actualAmounts={actualAmounts}
           onClose={() => setShowLockModal(false)}
-          onLock={(entries, total) => { lockMonth(yearMonth, entries, total); setShowLockModal(false); }}
+          onLock={handleLockIncome}
+          saving={savingIncome}
+          lockError={incomeLockError}
         />
       )}
     </div>
